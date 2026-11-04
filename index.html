@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1717">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CampoCoach">
+  <meta name="description" content="La tua squadra, allenamenti, formazioni e statistiche in tasca.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>CampoCoach — gestione squadra</title>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">⚽</div>
+      <div class="brand-copy"><strong>CAMPO<span>COACH</span></strong><small>La panchina, in tasca</small></div>
+      <span id="todayLabel" class="today-label"></span>
+    </header>
+    <main class="shell">
+      <section id="dashboard" class="tab-page"></section>
+      <section id="training" class="tab-page" hidden></section>
+      <section id="matches" class="tab-page" hidden></section>
+      <section id="roster" class="tab-page" hidden></section>
+      <section id="stats" class="tab-page" hidden></section>
+    </main>
+    <nav class="bottom-nav" aria-label="Navigazione principale">
+      <button class="nav-item active" data-tab="dashboard" aria-label="Home" aria-current="page"><span class="nav-icon">⌂</span><span>Home</span></button>
+      <button class="nav-item" data-tab="training" aria-label="Allenamento"><span class="nav-icon">◈</span><span>Training</span></button>
+      <button class="nav-item" data-tab="matches" aria-label="Partite"><span class="nav-icon">▦</span><span>Partite</span></button>
+      <button class="nav-item" data-tab="roster" aria-label="Rosa"><span class="nav-icon">♙</span><span>Rosa</span></button>
+      <button class="nav-item" data-tab="stats" aria-label="Statistiche"><span class="nav-icon">▥</span><span>Stats</span></button>
+    </nav>
+    <div id="modal" class="modal-backdrop" hidden><div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-header"><h3 id="modalTitle">Seleziona giocatore</h3><button id="modalClose" class="icon-btn" type="button" aria-label="Chiudi">✕</button></div><div id="modalBody"></div></div></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script defer src="tactics.js"></script>
+  <script defer src="app.js"></script>
+</body>
+</html>
