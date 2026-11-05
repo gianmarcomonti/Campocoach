@@ -9,7 +9,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const today = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
   const uid = () => (crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
-  const defaultData = () => ({ version:6, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
+  const defaultData = () => ({ version:7, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
   const fmtDate = iso => {
     if (!iso) return '—';
     const d = new Date(`${iso}T12:00:00`);
@@ -44,7 +44,17 @@
     const certified = legacy
       ? Object.fromEntries(Object.entries(v.attendance).filter(([date,ids])=>Array.isArray(ids)).map(([date,ids])=>[date,{ids:[...new Set(ids)],confirmedAt:null,revision:1}]))
       : Object.fromEntries(Object.entries(v.attendanceCertified).filter(([date,record])=>record && Array.isArray(record.ids)).map(([date,record])=>[date,{ids:[...new Set(record.ids)],confirmedAt:record.confirmedAt||null,revision:Math.max(1,Number(record.revision)||1)}]));
-    return {version:6,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches:v.matches.map(m=>({...m,benchIds:Array.isArray(m.benchIds)?[...new Set(m.benchIds.filter(id=>!m.lineup?.includes(id)))]:[]}))};
+    const validIds=new Set(v.players.filter(p=>!p.isDondo).map(p=>p.id));
+    const matches=v.matches.map(m=>{
+      const lineup=Array.from({length:11},(_,i)=>validIds.has(m.lineup?.[i])?m.lineup[i]:null);
+      const previous=[...lineup,...(Array.isArray(m.benchIds)?m.benchIds:[]),...(m.events||[]).flatMap(e=>[e.playerId,e.assistId])];
+      const rawCalled=Array.isArray(m.calledUpIds)?m.calledUpIds:previous;
+      const calledUpIds=[...new Set(rawCalled.filter(id=>validIds.has(id)))];
+      const confirmed=typeof m.callupsConfirmed==='boolean'?m.callupsConfirmed:calledUpIds.length>0;
+      return {...m,lineup,calledUpIds,callupsConfirmed:confirmed,
+        benchIds:calledUpIds.filter(id=>!lineup.includes(id))};
+    });
+    return {version:7,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true,isFirstTeam:p.isFirstTeam===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches};
   }
   function load(){
     try {
@@ -222,10 +232,11 @@
         <div class="form-group"><label for="pPrimary">Ruolo principale (priorità massima)</label><select id="pPrimary" name="primaryPosition" required>${optionsPositions(editing?.primaryPosition||'MEZ')}</select></div>
         <div class="form-group"><label for="pSecondary">Ruolo secondario (facoltativo)</label><select id="pSecondary" name="secondaryPosition">${optionsPositions(editing?.secondaryPosition||'',true)}</select><div class="form-hint">Esempio: un terzino destro che può fare il centrale. Viene usato da centrale soltanto dopo i centrali di ruolo, ove possibile.</div></div>
         <div class="form-group"><label for="pRating">Valutazione tecnica (da 1 a 5, anche mezze stelle)</label><select id="pRating" name="rating">${Array.from({length:9},(_,i)=>1+i*0.5).map(v=>`<option value="${v}" ${v===ratingValue(editing?.rating??3)?'selected':''}>${ratingLabel(v)} stelle su 5</option>`).join('')}</select><div id="ratingPreview" class="rating-preview" aria-live="polite">${ratingStars(editing?.rating??3)}</div><div class="form-hint">Puoi scegliere anche 2,5, 3,5 o 4,5 stelle. Il valore serve per bilanciare il livello delle squadre, senza scavalcare il ruolo principale.</div></div>
+        <label class="toggle-control" for="pIsFirstTeam"><input type="checkbox" id="pIsFirstTeam" ${editing?.isFirstTeam?'checked':''}><span><strong>Giocatore della prima squadra</strong><small>Etichetta organizzativa: non cambia le presenze agli allenamenti, le statistiche né aggiunge bonus alla scelta dei titolari. Nelle convocazioni puoi selezionare rapidamente i giocatori contrassegnati.</small></span></label>
         <label class="toggle-control" for="pIsDondo"><input type="checkbox" id="pIsDondo" ${editing?.isDondo?'checked':''}><span><strong>Questo giocatore è il Jolly Dondo</strong><small>Lo userai solo per completare le partitelle o come sponda nei possessi. Non entra in presenze, partite e statistiche ufficiali.</small></span></label>
         <div class="button-row"><button class="btn primary" type="submit">${editing?'Salva modifiche':'Aggiungi in rosa'}</button>${editing?'<button type="button" class="btn secondary" data-action="cancel-edit">Annulla</button>':''}</div>
       </form></div>
-      <div class="card"><div class="card-title"><h2>Elenco giocatori</h2><span class="tag">${players.length}</span></div>${players.length?`<div class="player-list">${players.map(p=>`<div class="player-row"><div class="number-badge">${p.number}</div><div class="person-info"><strong>${esc(p.name)}${p.isDondo?' <span class="tag orange">JOLLY DONDO</span>':''}</strong><small>${esc(positionLine(p))}</small><div class="rating-in-list">${ratingStars(p.rating)}</div></div><div class="player-actions"><button type="button" class="icon-btn" aria-label="Modifica ${esc(p.name)}" data-action="edit-player" data-id="${esc(p.id)}">✎</button><button type="button" class="icon-btn" aria-label="Elimina ${esc(p.name)}" data-action="delete-player" data-id="${esc(p.id)}">✕</button></div></div>`).join('')}</div>`:`<div class="empty"><span class="empty-icon">⚽</span>La rosa è vuota. Inserisci il primo giocatore o usa la demo.</div><button class="btn secondary full" style="margin-top:12px" data-action="demo">Carica 18 giocatori di esempio</button>`}</div></div>
+      <div class="card"><div class="card-title"><h2>Elenco giocatori</h2><span class="tag">${players.length}</span></div>${players.length?`<div class="player-list">${players.map(p=>`<div class="player-row"><div class="number-badge">${p.number}</div><div class="person-info"><strong>${esc(p.name)}${p.isDondo?' <span class="tag orange">JOLLY DONDO</span>':''}${p.isFirstTeam?' <span class="tag">PRIMA SQUADRA</span>':''}</strong><small>${esc(positionLine(p))}</small><div class="rating-in-list">${ratingStars(p.rating)}</div></div><div class="player-actions"><button type="button" class="icon-btn" aria-label="Modifica ${esc(p.name)}" data-action="edit-player" data-id="${esc(p.id)}">✎</button><button type="button" class="icon-btn" aria-label="Elimina ${esc(p.name)}" data-action="delete-player" data-id="${esc(p.id)}">✕</button></div></div>`).join('')}</div>`:`<div class="empty"><span class="empty-icon">⚽</span>La rosa è vuota. Inserisci il primo giocatore o usa la demo.</div><button class="btn secondary full" style="margin-top:12px" data-action="demo">Carica 18 giocatori di esempio</button>`}</div></div>
       <div class="card"><div class="card-title"><h2>Backup e trasferimento dati</h2><span class="tag orange">Solo su questo dispositivo</span></div><p class="hint">I dati sono salvati nel browser di questo telefono. Esporta una copia JSON: puoi importarla su un altro telefono o dopo aver reinstallato l'app.</p><div class="button-row"><button class="btn secondary" data-action="export">↓ Esporta backup</button><button class="btn ghost" data-action="choose-import">↑ Importa backup</button></div><input id="importInput" type="file" accept=".json,application/json" hidden><div class="warning-note" style="margin-top:14px">Non usare la cancellazione dei dati del browser senza prima aver esportato un backup. In questa versione non esiste sincronizzazione cloud.</div></div>`;
   }
 
@@ -353,27 +364,44 @@
   const formationSlots=formation=>TACTICS.matchSlots(formation);
   const certifiedDatesNewest=()=>Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
   const metricsForMatch=m=>TACTICS.matchFormMetrics(m.date,state.players,state.attendanceCertified,state.matches.filter(x=>x.id!==m.id));
-  function availabilityIds(m,metrics){
-    const dates=certifiedDatesNewest().filter(d=>d<m.date);
-    const source=m.autoSource||'all';
-    if(source==='week')return officialPlayers().filter(p=>(metrics.byId[p.id]?.trainings||0)>0).map(p=>p.id);
-    if(source==='latest')return dates.length?certifiedIds(dates[0]):officialPlayers().map(p=>p.id);
-    if(source==='all')return officialPlayers().map(p=>p.id);
-    return source<m.date?certifiedIds(source):[];
-  }
+  // The coach must confirm the call-ups before generating an official line-up.
+  // The first-team label is deliberately NOT used as a scoring bonus.
   function autoLineup(m){
+    if(!m.callupsConfirmed || !(m.calledUpIds||[]).length)return Array(11).fill(null);
     const metrics=metricsForMatch(m);
-    const players=availabilityIds(m,metrics).map(person).filter(Boolean);
+    const players=m.calledUpIds.map(person).filter(p=>p&&!p.isDondo);
     const scores=Object.fromEntries(Object.entries(metrics.byId).map(([id,value])=>[id,value.formScore]));
     return TACTICS.makeMatchLineup(m.formation,players,scores);
+  }
+  function updateCallups(m,proposed){
+    const next=[...new Set(proposed.filter(id=>person(id)&&!person(id).isDondo))];
+    const previous=m.calledUpIds||[];
+    if(sameIds(next,previous))return true;
+    const removed=previous.filter(id=>!next.includes(id));
+    const starters=removed.filter(id=>(m.lineup||[]).includes(id));
+    const eventPeople=removed.filter(id=>(m.events||[]).some(e=>e.playerId===id||e.assistId===id));
+    if((starters.length||eventPeople.length) && !confirm(`Stai togliendo ${removed.length} giocatori dai convocati, fra cui ${starters.length} titolari. Verranno tolti dalla formazione e dalla panchina.${eventPeople.length?' Verranno rimossi anche gli eventi (gol/assist) dei giocatori esclusi.':''} Continuare?`))return false;
+    m.calledUpIds=next;
+    m.callupsConfirmed=false;
+    m.lineup=(m.lineup||Array(11).fill(null)).map(id=>next.includes(id)?id:null);
+    if(eventPeople.length){
+      const out=new Set(removed);
+      m.events=(m.events||[]).filter(e=>!out.has(e.playerId)).map(e=>({...e,assistId:out.has(e.assistId)?null:e.assistId}));
+    }
+    cleanBench(m);
+    saveMatchChange();
+    return true;
   }
   function formSummary(p,m,metrics=metricsForMatch(m)){
     const v=metrics.byId[p.id]||{trainings:0,trainingsTotal:0,goals:0,assists:0,formScore:0};
     return `${v.trainings}/${v.trainingsTotal} allenamenti · ⚽ ${v.goals} · 🎯 ${v.assists} · Forma ${Math.round(v.formScore)}/100`;
   }
   function cleanBench(m){
-    const starting=new Set((m.lineup||[]).filter(Boolean));
-    m.benchIds=[...new Set((m.benchIds||[]).filter(id=>person(id)&&!person(id).isDondo&&!starting.has(id)))];
+    m.calledUpIds=[...new Set((m.calledUpIds||[]).filter(id=>person(id)&&!person(id).isDondo))];
+    const permitted=new Set(m.calledUpIds);
+    m.lineup=(m.lineup||Array(11).fill(null)).map(id=>permitted.has(id)?id:null);
+    const starting=new Set(m.lineup.filter(Boolean));
+    m.benchIds=m.calledUpIds.filter(id=>!starting.has(id));
   }
   function renderPitch(m,editable=false){
     const slots=formationSlots(m.formation);
@@ -386,48 +414,54 @@
   function renderMatchDetail(m){
     cleanBench(m);
     const editing=editingMatch();
-    const lined=m.lineup?.filter(Boolean)||[];
+    const lined=m.lineup.filter(Boolean);
     const metrics=metricsForMatch(m);
-    const bench=orderPlayers(officialPlayers().filter(p=>!lined.includes(p.id)));
-    const selectedBench=bench.filter(p=>m.benchIds.includes(p.id));
-    const fromMatch=(m.events||[]);
+    const callups=orderPlayers(officialPlayers()).sort((a,b)=>Number(b.isFirstTeam)-Number(a.isFirstTeam));
+    const selected=callups.filter(p=>m.calledUpIds.includes(p.id));
+    const selectedBench=selected.filter(p=>!lined.includes(p.id));
+    const fromMatch=m.events||[];
     const currentEvent=editing ? fromMatch.find(e=>e.id===ui.editingEventId) : null;
-    const selectedFilter=null;
-    const trainingDates=certifiedDatesNewest().filter(d=>d<m.date);
-    const source=m.autoSource||'all';
-    const sourceOptions=`<option value="all" ${source==='all'?'selected':''}>Tutta la rosa (consigliato)</option><option value="week" ${source==='week'?'selected':''}>Solo chi si è allenato questa settimana</option>${trainingDates.length?`<option value="latest" ${source==='latest'?'selected':''}>Ultimo allenamento prima della partita (${fmtDate(trainingDates[0])})</option>`:''}${trainingDates.map(d=>`<option value="${esc(d)}" ${source===d?'selected':''}>Allenamento ${fmtDate(d)} · ${certifiedIds(d).length} presenti</option>`).join('')}`;
-    const weekDetail=metrics.weekDates.length?metrics.weekDates.map(fmtDate).join(' · '):'Nessun allenamento certificato nei giorni precedenti la partita';
-    const controls=editing?`<div class="match-edit-banner" role="status"><div><strong>✎ Stai modificando questa partita</strong><small>Le modifiche a data, formazioni, panchina, risultato ed eventi si salvano tutte insieme.</small></div><div class="match-edit-buttons"><button type="button" class="btn primary" data-action="save-match-edit">✓ Salva modifiche</button><button type="button" class="btn secondary" data-action="cancel-match-edit">Annulla</button></div></div>`:
-      `<div class="match-view-banner"><div><strong>Partita salvata</strong><small>Puoi cambiare tutti i dettagli anche dopo averla creata.</small></div><button type="button" class="btn primary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button></div>`;
+    const weekDetail=metrics.weekDates.length?metrics.weekDates.map(fmtDate).join(' · '):'Nessun allenamento certificato prima della partita';
+    const controls=editing?`<div class="match-edit-banner" role="status"><div><strong>✎ Stai modificando questa partita</strong><small>Convocati, formazione, panchina e tabellino saranno salvati insieme.</small></div><div class="match-edit-buttons"><button type="button" class="btn primary" data-action="save-match-edit">✓ Salva modifiche</button><button type="button" class="btn secondary" data-action="cancel-match-edit">Annulla</button></div></div>`:
+      `<div class="match-view-banner"><div><strong>Partita salvata</strong><small>Puoi modificare convocati e formazione quando vuoi.</small></div><button type="button" class="btn primary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button></div>`;
     const details=editing?`<div class="form-group" style="margin-bottom:12px"><label for="matchOpponentEdit">Avversario</label><input id="matchOpponentEdit" maxlength="65" required value="${esc(m.opponent)}" placeholder="Nome avversario"></div>
       <div class="two-col"><div><label for="matchDateEdit">Data della partita</label><input type="date" id="matchDateEdit" value="${esc(m.date)}" required></div><div><label for="matchVenueEdit">Campo</label><select id="matchVenueEdit"><option value="Casa" ${m.venue==='Casa'?'selected':''}>Casa</option><option value="Trasferta" ${m.venue==='Trasferta'?'selected':''}>Trasferta</option></select></div></div>
       <div class="form-group" style="margin:12px 0"><label for="matchFormation">Modulo</label><select id="matchFormation">${FORMATIONS.map(f=>`<option value="${f}" ${f===m.formation?'selected':''}>${f}</option>`).join('')}</select></div>`:
       `<div class="match-info-strip"><span>📅 ${fmtDate(m.date)} · ${weekday(m.date)}</span><span>📍 ${esc(m.venue)}</span><span>⚽ ${esc(m.formation)}</span></div>`;
-    const formSettings=editing?`<div class="formation-settings"><strong>Generazione intelligente · settimana della partita</strong><p class="hint">Il modulo rispetta prima di tutto il ruolo principale, poi quello secondario. Fra giocatori adatti alla stessa posizione, il sistema premia allenamenti certificati, gol e assist recenti.</p><div class="week-panel"><div><strong>Settimana ${fmtDate(metrics.weekStart)} – ${fmtDate(m.date)}</strong><span>${metrics.weekDates.length} allenamenti certificati prima della gara</span></div><small>${weekDetail}</small></div><div class="form-points"><span>Livello tecnico <b>20 pt</b></span><span>Presenze settimanali <b>35 pt</b></span><span>Gol / assist recenti <b>45 pt</b></span></div><p class="form-hint">Gol e assist delle ultime 5 partite registrate nei 45 giorni precedenti. Le stelle della Rosa non vengono modificate.</p><div class="button-row"><button class="btn small ${m.formation.startsWith('4')?'primary':'secondary'}" data-action="set-defense" data-defense="4">Difesa a 4</button><button class="btn small ${m.formation.startsWith('3')?'primary':'secondary'}" data-action="set-defense" data-defense="3">Difesa a 3</button></div><div class="form-group" style="margin-top:12px"><label for="matchAutoSource">Giocatori disponibili per generare la formazione</label><select id="matchAutoSource">${sourceOptions}</select><div class="form-hint">Puoi scegliere tutta la rosa o solo i giocatori allenati, e correggere manualmente le maglie.</div></div></div>
-      <div class="button-row lineup-tools"><button class="btn secondary small" data-action="auto-lineup">⚡ Genera titolari in base alla forma</button><button class="btn secondary small" data-action="clear-lineup">Cancella titolari</button></div>`:'';
-    const benchChooser=editing?`<p class="hint">Spunta i giocatori da convocare per la panchina. I non selezionati restano non convocati.</p><div class="bench-chooser">${bench.length?bench.map(p=>`<label class="bench-select ${m.benchIds.includes(p.id)?'is-selected':''}"><input type="checkbox" data-bench-id="${esc(p.id)}" ${m.benchIds.includes(p.id)?'checked':''}><span class="bench-detail"><strong>#${p.number} ${esc(p.name)}</strong><small>${esc(positionName(p))} · ${esc(formSummary(p,m,metrics))}</small></span></label>`).join(''):'<p class="hint">Nessun giocatore disponibile fuori dall’undici titolare.</p>'}</div>`:'';
+    const callupsBlock=editing?`<div class="match-step"><span class="match-step-num">1</span><div><strong>Convocati della partita</strong><small>Seleziona prima i giocatori disponibili, poi conferma. Solo loro potranno diventare titolari o riserve.</small></div><span class="tag">${selected.length} convocati</span></div>
+      <div class="button-row callups-actions"><button type="button" class="btn secondary small" data-action="callup-all">Convoca tutti</button><button type="button" class="btn secondary small" data-action="callup-first">Solo Prima squadra</button><button type="button" class="btn ghost small" data-action="callup-none">Svuota</button></div>
+      <div class="callups-chooser">${callups.length?callups.map(p=>`<label class="callup-select ${m.calledUpIds.includes(p.id)?'is-selected':''}"><input type="checkbox" data-callup-id="${esc(p.id)}" ${m.calledUpIds.includes(p.id)?'checked':''}><span class="callup-details"><strong>#${p.number} ${esc(p.name)} ${p.isFirstTeam?'<span class="tag">PRIMA SQUADRA</span>':''}</strong><small>${esc(positionLine(p))} · ${ratingLabel(p.rating)} ★ · ${esc(formSummary(p,m,metrics))}</small></span></label>`).join(''):'<p class="hint">Inserisci prima i giocatori nella Rosa.</p>'}</div>
+      <div class="callups-confirm"><div><strong>${m.callupsConfirmed?'✓ Convocati confermati':'Convocati da confermare'}</strong><small>${selected.length} selezionati · ${selected.length>=11?'numero sufficiente per 11 titolari':'meno di 11 giocatori, la formazione potrà essere incompleta'}. Il flag Prima squadra non modifica stelle, presenze o indice di forma.</small></div><button class="btn ${m.callupsConfirmed?'secondary':'primary'}" data-action="confirm-callups" ${selected.length?'':'disabled'}>${m.callupsConfirmed?'✓ Confermati':'Conferma convocati →'}</button></div>`:
+      `<div class="match-step"><span class="match-step-num">1</span><div><strong>Convocati</strong><small>${selected.length} selezionati per questa gara</small></div><span class="tag">${m.callupsConfirmed?'Confermati':'Da confermare'}</span></div><div class="callups-summary">${selected.length?selected.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)}${p.isFirstTeam?' · Prima squadra':''}</span>`).join(''):'Nessun convocato'}</div>`;
+    const formSettings=editing?`<div class="match-step"><span class="match-step-num">2</span><div><strong>Genera la migliore formazione</strong><small>La generazione considera soltanto i convocati confermati.</small></div></div>
+      <div class="formation-settings"><strong>Scelta intelligente per ruolo, valore e forma</strong><p class="hint">Priorità al ruolo principale, poi a quello secondario. A parità di compatibilità si confrontano stelle tecniche, allenamenti certificati, gol e assist recenti. Il flag Prima squadra non dà bonus.</p><div class="week-panel"><div><strong>Settimana ${fmtDate(metrics.weekStart)} – ${fmtDate(m.date)}</strong><span>${metrics.weekDates.length} allenamenti certificati prima della gara</span></div><small>${weekDetail}</small></div><div class="form-points"><span>Livello tecnico <b>20 pt</b></span><span>Presenze settimanali <b>35 pt</b></span><span>Gol / assist recenti <b>45 pt</b></span></div><p class="form-hint">Rendimento sulle ultime 5 partite registrate nei 45 giorni precedenti. Le stelle restano quelle della Rosa.</p><div class="button-row"><button class="btn small ${m.formation.startsWith('4')?'primary':'secondary'}" data-action="set-defense" data-defense="4">Difesa a 4</button><button class="btn small ${m.formation.startsWith('3')?'primary':'secondary'}" data-action="set-defense" data-defense="3">Difesa a 3</button></div></div>
+      ${!m.callupsConfirmed?'<p class="warning-note">Conferma i convocati nel passaggio 1 prima di generare o modificare la formazione.</p>':''}
+      <div class="button-row lineup-tools"><button class="btn primary small" data-action="auto-lineup" ${!m.callupsConfirmed||!m.calledUpIds.length?'disabled':''}>⚡ Genera la migliore formazione</button><button class="btn secondary small" data-action="clear-lineup" ${!m.callupsConfirmed?'disabled':''}>Cancella titolari</button></div>`:'';
     const results=editing?`<div class="two-col"><div><label for="gf">Gol fatti</label><input id="gf" data-result="gf" type="number" min="0" max="99" value="${m.gf??''}" placeholder="–"></div><div><label for="ga">Gol subiti</label><input id="ga" data-result="ga" type="number" min="0" max="99" value="${m.ga??''}" placeholder="–"></div></div><div class="form-hint">Il risultato viene salvato insieme alla partita quando premi «Salva modifiche».</div>`:
       `<div class="match-result-readonly"><strong>${score(m)}</strong><small>Risultato registrato</small></div>`;
-    const eventForm=editing?`<form id="eventForm" class="stack"><div class="two-col"><div><label for="eventType">Tipo evento</label><select id="eventType">${Object.entries(EVENTS).filter(([k])=>k!=='clean').map(([k,v])=>`<option value="${k}" ${ui.eventType===k?'selected':''}>${v.title}</option>`).join('')}</select></div><div><label for="eventMinute">Minuto (opzionale)</label><input id="eventMinute" type="number" min="0" max="130" placeholder="Es. 64" value="${currentEvent?.minute??''}"></div></div><div><label for="eventPlayer">Giocatore</label><select id="eventPlayer" required>${pOptions(currentEvent?.playerId||'',selectedFilter)}</select></div>${ui.eventType==='gol'?`<div><label for="eventAssist">Assist di (facoltativo)</label><select id="eventAssist">${pOptions(currentEvent?.assistId||'')}</select><div class="form-hint">Se inserisci l'assist qui, non aggiungerlo una seconda volta come evento separato.</div></div>`:''}<div class="button-row"><button type="submit" class="btn primary" ${state.players.length===0?'disabled':''}>${currentEvent?'✓ Aggiorna evento':'+ Registra evento'}</button>${currentEvent?'<button type="button" class="btn secondary" data-action="cancel-event-edit">Annulla evento</button>':''}</div></form>`:'';
+    const eventForm=editing?`<form id="eventForm" class="stack"><div class="two-col"><div><label for="eventType">Tipo evento</label><select id="eventType">${Object.entries(EVENTS).filter(([k])=>k!=='clean').map(([k,v])=>`<option value="${k}" ${ui.eventType===k?'selected':''}>${v.title}</option>`).join('')}</select></div><div><label for="eventMinute">Minuto (opzionale)</label><input id="eventMinute" type="number" min="0" max="130" placeholder="Es. 64" value="${currentEvent?.minute??''}"></div></div><div><label for="eventPlayer">Giocatore</label><select id="eventPlayer" required>${pOptions(currentEvent?.playerId||'',p=>m.calledUpIds.includes(p.id))}</select></div>${ui.eventType==='gol'?`<div><label for="eventAssist">Assist di (facoltativo)</label><select id="eventAssist">${pOptions(currentEvent?.assistId||'',p=>m.calledUpIds.includes(p.id))}</select><div class="form-hint">Se inserisci l'assist qui, non aggiungerlo una seconda volta come evento separato.</div></div>`:''}<div class="button-row"><button type="submit" class="btn primary" ${m.calledUpIds.length===0?'disabled':''}>${currentEvent?'✓ Aggiorna evento':'+ Registra evento'}</button>${currentEvent?'<button type="button" class="btn secondary" data-action="cancel-event-edit">Annulla evento</button>':''}</div></form>`:'';
     return `<div class="card">${controls}<div class="card-title"><h2>Formazione ${esc(m.formation)}</h2><span class="tag">${lined.length}/11 titolari</span></div><div class="scoreline"><div class="club">La tua squadra</div><div class="versus">${score(m)}</div><div class="club" style="text-align:right">${esc(m.opponent)}</div></div>
-    ${details}
-    ${renderPitch(m,editing)}
-    <div class="lineup-review"><div class="card-title"><h3>Forma degli undici</h3><span class="tag">Presenze della settimana</span></div><div class="lineup-review-grid">${formationSlots(m.formation).map((slot,index)=>{const p=person(m.lineup?.[index]);return `<div class="lineup-review-item"><small>${esc(slot.label)}</small><strong>${p?esc(p.name):'Posto libero'}</strong><span>${p?esc(formSummary(p,m,metrics)):'—'}</span></div>`;}).join('')}</div></div>
-    ${formSettings}
-    <div class="card-title" style="margin-top:20px"><h3>Panchina</h3><span class="tag">${selectedBench.length} convocati</span></div>
-    ${benchChooser}
-    <div class="bench-summary"><strong>Panchina selezionata</strong><div class="bench-grid">${selectedBench.length?selectedBench.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)} · ${metrics.byId[p.id]?.trainings||0}/${metrics.weekDates.length} allen.</span>`).join(''):'<span class="hint">Nessuna riserva selezionata</span>'}</div></div>
-    <hr class="section-divider"><div class="card-title"><h3>Risultato finale</h3><span class="tag">Facoltativo</span></div>${results}</div>
-    <div class="card"><div class="card-title"><h2>Eventi partita</h2><span class="tag">${fromMatch.length} eventi</span></div><p class="hint">🧤 Porta inviolata automatica: se il portiere è titolare e i gol subiti sono 0, viene assegnata nelle statistiche senza inserire eventi manuali.</p>${m.ga===0&&m.lineup?.[0]&&person(m.lineup[0])?.primaryPosition==='POR'?`<div class="clean-auto">🧤 Porta inviolata a <strong>${esc(display(m.lineup[0]))}</strong> contro ${esc(m.opponent)} · ${fmtDate(m.date)}</div>`:''}${eventForm}
-    ${fromMatch.length?`<hr class="section-divider"><div class="event-list">${fromMatch.map(e=>`<div class="event-item"><div class="event-emoji">${EVENTS[e.type]?.symbol||'•'}</div><div class="event-main"><strong>${EVENTS[e.type]?.title||e.type} · ${esc(display(e.playerId))}</strong><small>${e.minute!==null&&e.minute!==undefined?`${e.minute}' · `:''}${e.assistId?`Assist: ${esc(display(e.assistId))}`:'Evento registrato'}</small></div>${editing?`<div class="event-actions"><button class="btn small secondary" data-action="edit-event" data-id="${esc(e.id)}">Modifica</button><button class="icon-btn" aria-label="Rimuovi evento" data-action="delete-event" data-id="${esc(e.id)}">✕</button></div>`:''}</div>`).join('')}</div>`:'<div class="empty" style="margin-top:15px">Nessun gol, assist o altro evento registrato.</div>'}
-    ${editing?`<div class="match-save-footer"><span>Modifiche non ancora salvate</span><button type="button" class="btn primary" data-action="save-match-edit">✓ Salva modifiche</button><button type="button" class="btn secondary" data-action="cancel-match-edit">Annulla</button></div>`:
-      `<div class="button-row" style="margin-top:18px"><button class="btn primary" data-action="download-graphic">↓ Esporta grafica PNG</button><button class="btn secondary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button><button class="btn danger" data-action="delete-match">Elimina partita</button></div>`}</div>`;
+      ${details}
+      ${callupsBlock}
+      ${formSettings}
+      <div class="match-step" style="margin-top:20px"><span class="match-step-num">3</span><div><strong>Titolari e panchina</strong><small>${editing?'Tocca le maglie per modificare i giocatori tra i convocati':'Formazione salvata'}</small></div></div>
+      ${renderPitch(m,editing&&m.callupsConfirmed)}
+      <div class="lineup-review"><div class="card-title"><h3>Forma degli undici</h3><span class="tag">Presenze della settimana</span></div><div class="lineup-review-grid">${formationSlots(m.formation).map((slot,index)=>{const p=person(m.lineup?.[index]);return `<div class="lineup-review-item"><small>${esc(slot.label)}</small><strong>${p?esc(p.name):'Posto libero'}</strong><span>${p?esc(formSummary(p,m,metrics)):'—'}</span></div>`;}).join('')}</div></div>
+      <div class="card-title" style="margin-top:20px"><h3>Panchina</h3><span class="tag">${selectedBench.length} riserve</span></div>
+      <p class="hint">I convocati che non sono tra gli undici titolari vengono inseriti automaticamente in panchina. Puoi correggere la formazione toccando una maglia.</p>
+      <div class="bench-summary"><strong>Riserve convocate</strong><div class="bench-grid">${selectedBench.length?selectedBench.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)} · ${metrics.byId[p.id]?.trainings||0}/${metrics.weekDates.length} allen.</span>`).join(''):'<span class="hint">Nessuna riserva selezionata</span>'}</div></div>
+      <hr class="section-divider"><div class="card-title"><h3>Risultato finale</h3><span class="tag">Facoltativo</span></div>${results}</div>
+      <div class="card"><div class="card-title"><h2>Eventi partita</h2><span class="tag">${fromMatch.length} eventi</span></div><p class="hint">🧤 Porta inviolata automatica: se il portiere è titolare e i gol subiti sono 0, viene assegnata nelle statistiche senza inserire eventi manuali.</p>${m.ga===0&&m.lineup?.[0]&&person(m.lineup[0])?.primaryPosition==='POR'?`<div class="clean-auto">🧤 Porta inviolata a <strong>${esc(display(m.lineup[0]))}</strong> contro ${esc(m.opponent)} · ${fmtDate(m.date)}</div>`:''}${eventForm}
+      ${fromMatch.length?`<hr class="section-divider"><div class="event-list">${fromMatch.map(e=>`<div class="event-item"><div class="event-emoji">${EVENTS[e.type]?.symbol||'•'}</div><div class="event-main"><strong>${EVENTS[e.type]?.title||e.type} · ${esc(display(e.playerId))}</strong><small>${e.minute!==null&&e.minute!==undefined?`${e.minute}' · `:''}${e.assistId?`Assist: ${esc(display(e.assistId))}`:'Evento registrato'}</small></div>${editing?`<div class="event-actions"><button class="btn small secondary" data-action="edit-event" data-id="${esc(e.id)}">Modifica</button><button class="icon-btn" aria-label="Rimuovi evento" data-action="delete-event" data-id="${esc(e.id)}">✕</button></div>`:''}</div>`).join('')}</div>`:'<div class="empty" style="margin-top:15px">Nessun gol, assist o altro evento registrato.</div>'}
+      ${editing?`<div class="match-save-footer"><span>Modifiche non ancora salvate</span><button type="button" class="btn primary" data-action="save-match-edit">✓ Salva modifiche</button><button type="button" class="btn secondary" data-action="cancel-match-edit">Annulla</button></div>`:
+        `<div class="button-row" style="margin-top:18px"><button class="btn primary" data-action="download-graphic">↓ Esporta grafica PNG</button><button class="btn secondary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button><button class="btn danger" data-action="delete-match">Elimina partita</button></div>`}</div>`;
   }
+
   function renderMatches(){
     const sorted=[...state.matches].sort((a,b)=>b.date.localeCompare(a.date));
     const current=matchById();
     el('matches').innerHTML=`
-      ${pageHead('03 / MATCH DAY','Partite & formazioni','Disegna gli undici in campo e registra gli eventi della gara.')}
+      ${pageHead('03 / MATCH DAY','Partite & formazioni','Crea la partita, scegli e conferma i convocati, poi genera i migliori titolari e la panchina.')}
       <div class="match-grid"><div><div class="card"><div class="card-title"><h2>Nuova partita</h2><span class="tag">Calendario libero</span></div><form class="stack" id="matchForm"><div class="form-group"><label for="matchOpponent">Avversario</label><input id="matchOpponent" required maxlength="65" placeholder="Es. Atletico Centro"></div><div class="two-col"><div><label for="matchDate">Data</label><input id="matchDate" type="date" required value="${today()}"></div><div><label for="matchVenue">Campo</label><select id="matchVenue"><option value="Casa">Casa</option><option value="Trasferta">Trasferta</option></select></div></div><div><label for="matchNewFormation">Modulo iniziale</label><select id="matchNewFormation">${FORMATIONS.map(f=>`<option>${f}</option>`).join('')}</select></div><button type="submit" class="btn primary full">+ Crea partita</button></form></div>
       <div class="card"><div class="card-title"><h2>Calendario gare</h2><span class="tag">${sorted.length} partite</span></div>${sorted.length?`<div class="match-list">${sorted.map(m=>`<div class="match-entry"><button type="button" class="match-item ${m.id===current?.id?'active':''}" data-action="select-match" data-id="${esc(m.id)}"><b>${score(m)}</b><strong>${esc(m.opponent)}</strong><small>${fmtDate(m.date)} · ${esc(m.venue)} · ${esc(m.formation)}</small></button><div class="match-entry-actions"><button type="button" class="btn secondary small" data-action="edit-match" data-id="${esc(m.id)}">Modifica</button><button type="button" class="btn danger small match-delete" data-action="delete-match" data-id="${esc(m.id)}" aria-label="Elimina partita contro ${esc(m.opponent)} del ${fmtDate(m.date)}">Elimina</button></div></div>`).join('')}</div>`:'<div class="empty"><span class="empty-icon">🏟️</span>Non hai ancora inserito partite.</div>'}</div></div>
       <div>${current?renderMatchDetail(current):`<div class="card"><div class="field-banner"><span>IL CAMPO TI ASPETTA</span></div><p class="hint" style="margin:17px 0 0">Crea una partita per iniziare a comporre la tua formazione. Tocca le maglie sul campo per cambiare giocatore.</p></div>`}</div></div>`;
@@ -503,14 +537,14 @@
   }
   function playerFormSubmit(){
     const name=el('pName')?.value.trim(),number=Number(el('pNum')?.value),
-      primaryPosition=el('pPrimary')?.value,secondaryPosition=el('pSecondary')?.value||'',rating=Number(el('pRating')?.value),isDondo=!!el('pIsDondo')?.checked;
+      primaryPosition=el('pPrimary')?.value,secondaryPosition=el('pSecondary')?.value||'',rating=Number(el('pRating')?.value),isDondo=!!el('pIsDondo')?.checked,isFirstTeam=!!el('pIsFirstTeam')?.checked;
     if(!name||name.length>50||!Number.isInteger(number)||number<0||number>99||
       !TACTICS.POSITIONS[primaryPosition]||(secondaryPosition&&!TACTICS.POSITIONS[secondaryPosition])||
       !Number.isFinite(rating)||rating<1||rating>5||!Number.isInteger(rating*2)){toast('Controlla i dati del giocatore');return;}
     if(secondaryPosition===primaryPosition){toast('Il ruolo secondario deve essere diverso dal principale');return;}
     if(state.players.some(p=>p.number===number&&p.id!==ui.editPlayerId)){toast('Numero di maglia già assegnato');return;}
     if(isDondo && state.players.some(p=>p.isDondo && p.id!==ui.editPlayerId)){toast('C’è già un Jolly Dondo: modifica quel giocatore oppure togli prima il flag.');return;}
-    const payload=TACTICS.normalizePlayer({name,number,rating,primaryPosition,secondaryPosition,isDondo});
+    const payload=TACTICS.normalizePlayer({name,number,rating,primaryPosition,secondaryPosition,isDondo,isFirstTeam});
     if(ui.editPlayerId){const p=person(ui.editPlayerId);if(p)Object.assign(p,payload);ui.editPlayerId=null;toast('Giocatore aggiornato');}
     else {state.players.push({...payload,id:uid()});toast('Giocatore aggiunto');}
     ui.current=null;save();renderRoster();
@@ -521,7 +555,7 @@
     state.players=state.players.filter(p=>p.id!==id);
     for(const date in state.attendance)state.attendance[date]=state.attendance[date].filter(x=>x!==id);
     for(const date in state.attendanceCertified)state.attendanceCertified[date].ids=state.attendanceCertified[date].ids.filter(x=>x!==id);
-    for(const m of state.matches){m.lineup=m.lineup.map(x=>x===id?null:x);m.benchIds=(m.benchIds||[]).filter(x=>x!==id);m.events=m.events.filter(e=>e.playerId!==id).map(e=>({...e,assistId:e.assistId===id?null:e.assistId}));}
+    for(const m of state.matches){m.lineup=m.lineup.map(x=>x===id?null:x);m.calledUpIds=(m.calledUpIds||[]).filter(x=>x!==id);m.benchIds=(m.benchIds||[]).filter(x=>x!==id);m.events=m.events.filter(e=>e.playerId!==id).map(e=>({...e,assistId:e.assistId===id?null:e.assistId}));}
     state.sessions=state.sessions.map(s=>({...s,groups:s.groups.map(g=>g.filter(x=>x!==id)),present:s.present.filter(x=>x!==id),joker:s.joker===id?null:s.joker,dondoJoker:s.dondoJoker===id?null:s.dondoJoker,sponde:(s.sponde||[]).filter(x=>x!==id),bench:s.bench.filter(x=>x!==id)}));
     ui.current=null;ui.editPlayerId=null;save();renderRoster();toast('Giocatore eliminato');
   }
@@ -529,16 +563,17 @@
     if(!closeMatchEditor())return;
     const opponent=el('matchOpponent')?.value.trim(),date=el('matchDate')?.value,venue=el('matchVenue')?.value,formation=el('matchNewFormation')?.value;
     if(!opponent||!date||!FORMATIONS.includes(formation)){toast('Inserisci avversario e data');return;}
-    const m={id:uid(),opponent,date,venue,formation,lineup:Array(11).fill(null),benchIds:[],autoSource:'all',events:[],gf:null,ga:null};
-    state.matches.unshift(m);ui.selectedMatchId=m.id;save();beginMatchEdit(m.id);toast('Partita creata: personalizzala e premi Salva modifiche');
+    const m={id:uid(),opponent,date,venue,formation,lineup:Array(11).fill(null),calledUpIds:[],callupsConfirmed:false,benchIds:[],events:[],gf:null,ga:null};
+    state.matches.unshift(m);ui.selectedMatchId=m.id;save();beginMatchEdit(m.id);toast('Partita creata: seleziona e conferma prima i convocati');
   }
   function addEvent(){
     const m=matchById();if(!m)return;
     const type=el('eventType')?.value,playerId=el('eventPlayer')?.value,minuteText=el('eventMinute')?.value,minute=minuteText===''?null:Number(minuteText),assistId=type==='gol'?(el('eventAssist')?.value||null):null;
-    if(!EVENTS[type]||!person(playerId)||person(playerId).isDondo){toast('Seleziona un giocatore ufficiale');return;}
+    if(!EVENTS[type]||!person(playerId)||person(playerId).isDondo||!m.calledUpIds.includes(playerId)){toast('Seleziona un giocatore convocato');return;}
     if(type==='clean'&&person(playerId).primaryPosition!=='POR'){toast('La porta inviolata è riservata ai portieri');return;}
     if(minute!==null&&(!Number.isInteger(minute)||minute<0||minute>130)){toast('Il minuto deve essere da 0 a 130');return;}
     if(assistId===playerId){toast('Il marcatore non può assistere se stesso');return;}
+    if(assistId&&!m.calledUpIds.includes(assistId)){toast('L’assist deve essere di un giocatore convocato');return;}
     if(type==='clean'&&m.ga!==null&&m.ga>0){toast('Risultato con gol subiti: non è possibile assegnare porta inviolata');return;}
     if(type==='clean'&&m.events.some(e=>e.type==='clean'&&e.playerId===playerId)){toast('Porta inviolata già registrata per questo portiere');return;}
     if(!editingMatch())return;
@@ -553,7 +588,7 @@
     el('modalTitle').textContent=`${slot.label} · Seleziona giocatore`;
     const current=m.lineup[slotIndex];
     const metrics=metricsForMatch(m);
-    const list=orderPlayers(officialPlayers()).sort((a,b)=>
+    const list=orderPlayers((m.calledUpIds||[]).map(person).filter(Boolean)).sort((a,b)=>
       (TACTICS.positionCost(a,slot.position)*3-(metrics.byId[a.id]?.formScore||0))-
       (TACTICS.positionCost(b,slot.position)*3-(metrics.byId[b.id]?.formScore||0)));
     el('modalBody').innerHTML=`<div class="modal-options"><div class="form-hint">Settimana ${fmtDate(metrics.weekStart)} – ${fmtDate(m.date)} · ${metrics.weekDates.length} allenamenti certificati</div><button class="modal-option" data-action="assign-player" data-index="${slotIndex}" data-id=""><strong>— Lascia libero questo posto</strong></button>${list.map(p=>`<button class="modal-option ${current===p.id?'selected':''}" data-action="assign-player" data-index="${slotIndex}" data-id="${esc(p.id)}"><strong>#${p.number} · ${esc(p.name)} ${current===p.id?'✓':''}</strong><small>${TACTICS.preferredQuality(p,slot.position)} · ${esc(positionLine(p))} · Livello ${ratingLabel(p.rating)}/5</small><small class="modal-form">${esc(formSummary(p,m,metrics))}${m.benchIds?.includes(p.id)?' · In panchina':''}</small></button>`).join('')}</div>`;
@@ -563,7 +598,8 @@
   function chooseSlot(slotIndex,id){
     const m=matchById();if(!m||slotIndex<0||slotIndex>=11)return;
     const old=m.lineup[slotIndex];
-    if(id && (!person(id)||person(id).isDondo))return;
+    if(!m.callupsConfirmed)return;
+    if(id && (!person(id)||person(id).isDondo||!m.calledUpIds.includes(id)))return;
     const other=id?m.lineup.indexOf(id):-1;
     if(other>=0&&other!==slotIndex)m.lineup[other]=old;
     m.lineup[slotIndex]=id||null;
@@ -731,12 +767,16 @@
     if(target.id==='includeGoalkeepers'){ui.includeGoalkeepers=target.checked;ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='defenseStyle'){ui.defense=Number(target.value)===3?3:4;ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='trainingFormation'){ui.formation=target.value;ui.current=null;renderTraining();return;}
-    if(target.id==='matchAutoSource'){const m=matchById();if(editingMatch()&&m){m.autoSource=target.value;saveMatchChange();renderMatches();}return;}
-    if(target.matches('[data-bench-id]')){const m=matchById();if(!m)return;const id=target.dataset.benchId;if(!editingMatch()||!person(id)||m.lineup.includes(id))return;m.benchIds=Array.isArray(m.benchIds)?m.benchIds:[];if(target.checked){if(!m.benchIds.includes(id))m.benchIds.push(id);}else m.benchIds=m.benchIds.filter(x=>x!==id);saveMatchChange();renderMatches();toast(target.checked?'Riserva aggiunta (da salvare)':'Riserva rimossa (da salvare)');return;}
+    if(target.matches('[data-callup-id]')){
+      const m=matchById();if(!editingMatch()||!m)return;
+      const id=target.dataset.callupId;
+      updateCallups(m,target.checked?[...m.calledUpIds,id]:m.calledUpIds.filter(x=>x!==id));
+      renderMatches();return;
+    }
     if(target.id==='eventType'){if(!editingMatch())return;ui.eventType=target.value;renderMatches();return;}
     if(target.id==='matchOpponentEdit'){const m=matchById();if(editingMatch()&&m)m.opponent=target.value.trim();return;}
     if(target.id==='matchVenueEdit'){const m=matchById();if(editingMatch()&&m){m.venue=target.value;renderMatches();}return;}
-    if(target.id==='matchFormation'){const m=matchById();if(editingMatch()&&m){if(m.lineup.some(Boolean)&&!confirm('Cambiare modulo e rigenerare la formazione?')){renderMatches();return;}m.formation=target.value;m.lineup=autoLineup(m);cleanBench(m);saveMatchChange();renderMatches();}return;}
+    if(target.id==='matchFormation'){const m=matchById();if(editingMatch()&&m){if(m.lineup.some(Boolean)&&!confirm('Cambiare modulo e svuotare i titolari? Potrai rigenerarli con il pulsante apposito.')){renderMatches();return;}m.formation=target.value;m.lineup=Array(11).fill(null);cleanBench(m);saveMatchChange();renderMatches();}return;}
     if(target.id==='matchDateEdit'){const m=matchById();if(editingMatch()&&m&&target.value){m.date=target.value;saveMatchChange();renderMatches();}return;}
     if(target.matches('[data-result]')){
       const m=matchById();if(!editingMatch()||!m)return;const num=target.value.trim()===''?null:Number(target.value);
@@ -794,24 +834,38 @@
     else if(a==='cancel-match-edit'){if(closeMatchEditor()){renderMatches();toast('Modifiche annullate: partita originale ripristinata');}}
     else if(a==='edit-event'){if(!editingMatch())return;const m=matchById(),evt=m?.events?.find(e=>e.id===id);if(!evt)return;ui.editingEventId=id;ui.eventType=evt.type;renderMatches();el('eventForm')?.scrollIntoView({behavior:'smooth',block:'center'});}
     else if(a==='cancel-event-edit'){ui.editingEventId=null;ui.eventType='gol';renderMatches();}
-    else if(a==='assign-slot'){if(editingMatch())openModal(Number(b.dataset.index));}
+    else if(a==='assign-slot'){if(editingMatch()&&matchById()?.callupsConfirmed)openModal(Number(b.dataset.index));else toast('Conferma prima i convocati');}
     else if(a==='assign-player'){if(editingMatch())chooseSlot(Number(b.dataset.index),id||null);}
+    else if(a==='callup-all'||a==='callup-first'||a==='callup-none'){
+      const m=matchById();if(!editingMatch()||!m)return;
+      const chosen=a==='callup-all'?officialPlayers().map(p=>p.id):a==='callup-first'?officialPlayers().filter(p=>p.isFirstTeam).map(p=>p.id):[];
+      if(a==='callup-first'&&!chosen.length){toast('Non hai ancora contrassegnato giocatori della Prima squadra nella Rosa');return;}
+      if(updateCallups(m,chosen)){renderMatches();toast('Convocati aggiornati: conferma la selezione');}
+      else renderMatches();
+    }
+    else if(a==='confirm-callups'){
+      const m=matchById();if(!editingMatch()||!m)return;
+      if(!m.calledUpIds.length){toast('Seleziona prima almeno un convocato');return;}
+      m.callupsConfirmed=true;cleanBench(m);saveMatchChange();renderMatches();
+      toast(m.calledUpIds.length<11?'Convocati confermati: meno di 11, formazione parziale':'Convocati confermati: ora genera la formazione');
+    }
     else if(a==='set-defense'){
       const m=matchById();if(!editingMatch()||!m)return;
       const desired=b.dataset.defense==='3'?'3-5-2':'4-3-3';
       if(m.formation===desired){toast('Assetto gia selezionato');return;}
-      if(m.lineup.some(Boolean)&&!confirm('Rigenerare la formazione con il nuovo assetto?'))return;
-      m.formation=desired;m.lineup=autoLineup(m);cleanBench(m);
-      saveMatchChange();renderMatches();toast(`Formazione con difesa a ${b.dataset.defense} proposta`);
+      if(m.lineup.some(Boolean)&&!confirm('Cambiare difesa e svuotare i titolari? Potrai rigenerarli con il pulsante apposito.'))return;
+      m.formation=desired;m.lineup=Array(11).fill(null);cleanBench(m);
+      saveMatchChange();renderMatches();toast(`Difesa a ${b.dataset.defense} selezionata: premi Genera la migliore formazione`);
     }
     else if(a==='auto-lineup'){
       const m=matchById();if(!editingMatch()||!m)return;
+      if(!m.callupsConfirmed || !m.calledUpIds.length){toast('Seleziona e conferma prima i convocati');return;}
       if(m.lineup.some(Boolean)&&!confirm('Sostituire la formazione attuale con una nuova proposta?'))return;
       m.lineup=autoLineup(m);cleanBench(m);saveMatchChange();renderMatches();
       const count=m.lineup.filter(Boolean).length;
-      toast(count<11?`Formazione proposta: ${count}/11, mancano giocatori`:'Titolari scelti per ruoli, presenze e forma');
+      toast(count<11?`Formazione proposta: ${count}/11, mancano convocati`:'Titolari scelti tra i convocati per ruolo, stelle e forma');
     }
-    else if(a==='clear-lineup'){const m=matchById();if(editingMatch()&&m&&confirm('Rimuovere tutti i titolari da questa formazione?')){m.lineup=Array(11).fill(null);saveMatchChange();renderMatches();}}
+    else if(a==='clear-lineup'){const m=matchById();if(editingMatch()&&m&&m.callupsConfirmed&&confirm('Rimuovere tutti i titolari da questa formazione?')){m.lineup=Array(11).fill(null);saveMatchChange();renderMatches();}}
     else if(a==='delete-event'){const m=matchById();if(editingMatch()&&m){m.events=m.events.filter(e=>e.id!==id);if(ui.editingEventId===id)ui.editingEventId=null;saveMatchChange();renderMatches();toast('Evento rimosso (da salvare)');}}
     else if(a==='delete-match')deleteMatch(id||matchById()?.id);
     else if(a==='download-graphic')graphicPNG();

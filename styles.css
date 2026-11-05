@@ -174,3 +174,22 @@
 .sponda-chip div{display:flex;flex-direction:column;gap:3px}.sponda-chip strong{font-size:13px}.sponda-chip small{font-size:10px;color:#ccdec5}
 .clean-auto{margin-top:12px;border:1px solid #7eaf87;background:#1e4437;border-radius:11px;padding:12px;color:#e4f5dc;font-size:13px}
 @media(max-width:450px){.profile-modal .modal-panel{max-height:88dvh}.profile-stats strong{font-size:20px}.profile-stats span{font-size:10px}.profile-hero strong{font-size:17px}}
+
+
+/* CampoCoach 4.7 - Convocati prima della formazione, prima squadra senza bonus */
+.match-step{display:flex;align-items:center;gap:11px;padding:12px 0;margin:15px 0 12px;border-top:1px solid #3c5a4d}
+.match-step>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.match-step strong{font-size:15px;color:#e5ffcc}.match-step small{font-size:11px;color:#bdd6c4;line-height:1.45}
+.match-step-num{display:grid;place-items:center;border-radius:11px;width:35px;height:35px;flex:none;background:#d0ff64;color:#18301e;font-size:19px;font-weight:950}
+.callups-actions{margin-bottom:11px}.callups-chooser{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.callup-select{display:flex;gap:9px;align-items:center;padding:11px;background:#182f2c;border:1px solid #3a594d;border-radius:11px;cursor:pointer;min-width:0}
+.callup-select.is-selected{background:#2a4937;border-color:#b1db82}
+.callup-select input{flex-shrink:0;width:18px;height:18px;accent-color:#d0ff64}
+.callup-details{display:flex;flex-direction:column;min-width:0;gap:4px}.callup-details strong{font-size:12px;color:#efffe9;line-height:1.4}
+.callup-details .tag{font-size:9px;padding:3px 5px;display:inline-block;margin-left:3px}
+.callup-details small{font-size:10px;color:#b9d6c6;line-height:1.5}
+.callups-confirm{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px;border-radius:13px;border:1px solid #6e965e;background:#254233;margin:14px 0}
+.callups-confirm>div{display:flex;flex-direction:column;gap:5px;flex:1;min-width:150px}.callups-confirm strong{color:#dbffae;font-size:13px}
+.callups-confirm small{color:#bad2bc;font-size:11px;line-height:1.5}
+.callups-summary{display:flex;flex-wrap:wrap;gap:6px;padding:11px;border-radius:10px;background:#1c3430;color:#b5cdbe;font-size:12px}
+@media(max-width:550px){.callups-chooser{grid-template-columns:1fr}.callups-confirm .btn{width:100%}.callups-actions .btn{flex:1;padding:10px 8px;font-size:11px}}

@@ -1,4 +1,4 @@
-# CampoCoach 4.6 — App per GitHub Pages
+# CampoCoach 4.7 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -55,10 +55,20 @@ README.md
 Non e un'app nativa pubblicata su App Store o Google Play, ma un sito installabile sul telefono tramite GitHub Pages. L'app non richiede account e non sincronizza dati tra dispositivi.
 
 
-## Novità 4.6 — Sponde, Jolly Dondo e statistiche singole
+## Novità 4.7 — Sponde, Jolly Dondo e statistiche singole
 
 - Portiere titolare: una porta inviolata viene conteggiata automaticamente quando i **gol subiti sono 0**. Un risultato non inserito non conta. I precedenti eventi manuali senza risultato sono conservati per compatibilità, senza contare due volte.
 - Nella tabella **Statistiche**, tocca il nome di un giocatore per visualizzare la sua scheda con gol, assist, autogol e porte inviolate, divisi per partita e avversario.
 - Nei **possessi palla** scegli il numero di **sponde**. Le sponde e i rispettivi nomi appaiono separati dalle squadre generate; la configurazione viene salvata nello storico.
 - Nella **Rosa**, il flag **Questo giocatore è il Jolly Dondo** consente di creare un giocatore speciale con ruolo principale/secondario, numero e stelle. In **Allenamenti → Crea squadre** puoi attivare **Jolly Dondo** e usarlo come jolly/sponda oppure come giocatore aggiuntivo per pareggiare le squadre. Dondo non risulta nelle presenze certificate, nelle partite o nelle statistiche ufficiali.
 - Carica tutti i file del pacchetto nella radice del repository GitHub (`main / (root)`), non lo ZIP. Se usi il medesimo URL GitHub Pages, i dati locali restano disponibili. Esporta sempre un backup prima di aggiornare.
+
+
+## Novità CampoCoach 4.7 — Convocazioni e Prima squadra
+
+- Nella **Rosa** puoi indicare un giocatore come **Prima squadra**. È una semplice etichetta: non cambia presenze certificate, statistiche, stelle o punteggio di forma.
+- Nella **Partita** seleziona i **convocati**, eventualmente usando i pulsanti “Convoca tutti” e “Solo Prima squadra”, poi premi **Conferma convocati**.
+- **Genera la migliore formazione** utilizza soltanto i convocati confermati. La compatibilità con il ruolo viene prima, poi valore in stelle, presenze settimanali e rendimento recente.
+- I convocati non scelti titolari passano automaticamente in **panchina**. I non convocati restano fuori.
+- Le partite delle vecchie versioni conservano titolari e panchinari esistenti come convocati iniziali.
+- Se cambi i convocati, devi confermarli nuovamente prima di rigenerare. La modifica viene salvata soltanto con **Salva modifiche**.
