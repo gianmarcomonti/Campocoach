@@ -9,7 +9,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const today = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
   const uid = () => (crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
-  const defaultData = () => ({ version:5, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
+  const defaultData = () => ({ version:6, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
   const fmtDate = iso => {
     if (!iso) return '—';
     const d = new Date(`${iso}T12:00:00`);
@@ -44,7 +44,7 @@
     const certified = legacy
       ? Object.fromEntries(Object.entries(v.attendance).filter(([date,ids])=>Array.isArray(ids)).map(([date,ids])=>[date,{ids:[...new Set(ids)],confirmedAt:null,revision:1}]))
       : Object.fromEntries(Object.entries(v.attendanceCertified).filter(([date,record])=>record && Array.isArray(record.ids)).map(([date,record])=>[date,{ids:[...new Set(record.ids)],confirmedAt:record.confirmedAt||null,revision:Math.max(1,Number(record.revision)||1)}]));
-    return {version:5,players:v.players.map(TACTICS.normalizePlayer),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches:v.matches.map(m=>({...m,benchIds:Array.isArray(m.benchIds)?[...new Set(m.benchIds.filter(id=>!m.lineup?.includes(id)))]:[]}))};
+    return {version:6,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches:v.matches.map(m=>({...m,benchIds:Array.isArray(m.benchIds)?[...new Set(m.benchIds.filter(id=>!m.lineup?.includes(id)))]:[]}))};
   }
   function load(){
     try {
@@ -54,15 +54,17 @@
     return defaultData();
   }
   let state = load();
-  let ui = { tab:'dashboard', date:today(), exercise:'partitella', teams:2, cap:0, extra:'jolly', includeGoalkeepers:true, defense:4, formation:'auto', current:null, selectedMatchId:null, editPlayerId:null, eventType:'gol', editingAttendance:false, editingMatchId:null, matchDraft:null, editingEventId:null, statsSort:{key:'trainings',dir:'desc'} };
+  let ui = { tab:'dashboard', date:today(), exercise:'partitella', teams:2, cap:0, extra:'jolly', includeGoalkeepers:true, defense:4, formation:'auto', current:null, selectedMatchId:null, editPlayerId:null, eventType:'gol', editingAttendance:false, editingMatchId:null, matchDraft:null, editingEventId:null, statsSort:{key:'trainings',dir:'desc'}, useDondo:false, dondoMode:'jolly', spondeCount:0 };
   const certifiedRecord = (date=ui.date) => state.attendanceCertified[date] || null;
-  const certifiedIds = (date=ui.date) => (certifiedRecord(date)?.ids || []).filter(id=>!!person(id));
+  const certifiedIds = (date=ui.date) => (certifiedRecord(date)?.ids || []).filter(id=>!!person(id) && !person(id).isDondo);
   const isAttendanceEditable = () => !certifiedRecord() || ui.editingAttendance;
   const sameIds = (a,b) => a.length===b.length && a.every(id=>b.includes(id));
   // Save the migrated v1 register immediately, preserving previously tracked days.
   try { if(localStorage.getItem(KEY)) localStorage.setItem(KEY,JSON.stringify(state)); } catch(e){}
   let toastTimer;
   const person = id => state.players.find(p => p.id === id);
+  const officialPlayers = () => state.players.filter(p=>!p.isDondo);
+  const dondoPlayer = () => state.players.find(p=>p.isDondo) || null;
   const display = id => person(id)?.name || 'Giocatore non trovato';
   const orderPlayers = ps => [...ps].sort((a,b) => (ROLE_ORDER.indexOf(a.role)-ROLE_ORDER.indexOf(b.role)) || (a.number-b.number) || a.name.localeCompare(b.name));
   const save = () => { try {localStorage.setItem(KEY,JSON.stringify(state));return true;} catch(e){toast('Memoria piena: esporta un backup JSON');return false;} };
@@ -136,30 +138,75 @@
     closeMatchEditor(false);
     renderMatches();toast('Partita aggiornata e salvata ✓');
   }
-  const presentIds = () => (state.attendance[ui.date] || []).filter(id=>!!person(id));
+  const presentIds = () => (state.attendance[ui.date] || []).filter(id=>!!person(id) && !person(id).isDondo);
 
+  // Porta inviolata: il portiere DEVE occupare la maglia da portiere (slot 0)
+  // e il risultato deve riportare zero gol subiti. I vecchi eventi manuali
+  // senza risultato vengono conservati per compatibilità, mai duplicati.
+  function hasCleanSheet(m,id){
+    if(!person(id) || person(id).isDondo || person(id).primaryPosition!=='POR')return false;
+    if(m.ga!==null && m.ga!==undefined && m.ga!=='')return Number(m.ga)===0 && m.lineup?.[0]===id;
+    return (m.events||[]).some(e=>e.type==='clean' && e.playerId===id);
+  }
+  function playerMatchActions(id){
+    const result=[];
+    for(const m of state.matches){
+      const events=[];
+      for(const e of (m.events||[])){
+        if(e.type==='gol' && e.playerId===id)events.push({type:'gol',minute:e.minute});
+        if(e.type==='gol' && e.assistId===id)events.push({type:'assist',minute:e.minute});
+        if(e.type==='assist' && e.playerId===id)events.push({type:'assist',minute:e.minute});
+        if(e.type==='autogol' && e.playerId===id)events.push({type:'autogol',minute:e.minute});
+      }
+      if(hasCleanSheet(m,id))events.push({type:'clean',minute:null});
+      if(events.length)result.push({match:m,events});
+    }
+    return result.sort((a,b)=>b.match.date.localeCompare(a.match.date));
+  }
   function statsFor(id){
+    if(person(id)?.isDondo)return {trainings:0,matches:0,gols:0,assists:0,ogs:0,cs:0};
     const trainings=Object.values(state.attendanceCertified).filter(v=>Array.isArray(v.ids) && v.ids.includes(id)).length;
     const matches=state.matches.filter(m=>m.lineup?.includes(id) || m.events?.some(e=>e.playerId===id || e.assistId===id)).length;
     let gols=0,assists=0,ogs=0,cs=0;
-    for(const m of state.matches)for(const e of (m.events||[])){
-      if(e.type==='gol' && e.playerId===id) gols++;
-      if(e.type==='assist' && e.playerId===id) assists++;
-      if(e.type==='gol' && e.assistId===id) assists++;
-      if(e.type==='autogol' && e.playerId===id) ogs++;
-      if(e.type==='clean' && e.playerId===id) cs++;
+    for(const item of playerMatchActions(id))for(const action of item.events){
+      if(action.type==='gol')gols++;
+      if(action.type==='assist')assists++;
+      if(action.type==='autogol')ogs++;
+      if(action.type==='clean')cs++;
     }
     return {trainings,matches,gols,assists,ogs,cs};
   }
-  const pOptions = (selected='',filter=null) => `<option value="">— Seleziona —</option>` + orderPlayers(state.players.filter(p=>!filter||filter(p))).map(p=>`<option value="${esc(p.id)}" ${selected===p.id?'selected':''}>#${p.number} · ${esc(p.name)} (${p.primaryPosition||p.role})</option>`).join('');
+  const pOptions = (selected='',filter=null) => `<option value="">— Seleziona —</option>` + orderPlayers(officialPlayers().filter(p=>!filter||filter(p))).map(p=>`<option value="${esc(p.id)}" ${selected===p.id?'selected':''}>#${p.number} · ${esc(p.name)} (${p.primaryPosition||p.role})</option>`).join('');
 
+  function openPlayerProfile(id){
+    const p=person(id);if(!p || p.isDondo)return;
+    const stats=statsFor(id);
+    const days=Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
+    const trainedDays=days.filter(d=>certifiedIds(d).includes(id));
+    const performances=playerMatchActions(id);
+    el('modalTitle').textContent=`#${p.number} ${p.name}`;
+    el('modalBody').innerHTML=`<div class="profile-sheet">
+      <div class="profile-hero"><span class="profile-number">${p.number}</span><div><strong>${esc(p.name)}</strong><small>${esc(positionLine(p))}</small><div>${ratingStars(p.rating,true)}</div></div></div>
+      <div class="profile-stats">
+        <div><strong>${stats.matches}</strong><span>Partite</span></div><div><strong>${stats.trainings}</strong><span>Allen.</span></div>
+        <div><strong>${stats.gols}</strong><span>⚽ Gol</span></div><div><strong>${stats.assists}</strong><span>🎯 Assist</span></div>
+        <div><strong>${stats.ogs}</strong><span>Autogol</span></div><div><strong>${stats.cs}</strong><span>🧤 P. inv.</span></div>
+      </div>
+      <h4>Azioni decisive per avversario</h4>
+      ${performances.length?performances.map(({match,events})=>`<div class="profile-performance"><div><strong>${esc(match.opponent)}</strong><small>${fmtDate(match.date)} · ${esc(match.venue||'Gara')} · ${score(match)}</small></div><div class="profile-actions">${events.map(e=>`<span class="profile-action">${EVENTS[e.type]?.symbol||'•'} ${EVENTS[e.type]?.title||esc(e.type)}${e.minute!==null&&e.minute!==undefined?` · ${e.minute}'`:''}</span>`).join('')}</div></div>`).join(''):'<p class="hint">Non ci sono ancora gol, assist o porte inviolate registrati per questo giocatore.</p>'}
+      <h4>Allenamenti certificati</h4>
+      ${trainedDays.length?`<p class="profile-training-days">${trainedDays.map(fmtDate).join(' · ')}</p>`:'<p class="hint">Nessun allenamento certificato.</p>'}
+    </div>`;
+    el('modal').hidden=false;document.body.style.overflow='hidden';
+    el('modal').classList.add('profile-modal');
+  }
   function renderDashboard(){
     const last=state.sessions[0], upcoming=[...state.matches].filter(m=>m.date>=today()).sort((a,b)=>a.date.localeCompare(b.date))[0];
     el('dashboard').innerHTML=`
       <div class="hero"><div class="eyebrow">IL TUO SPOGLIATOIO DIGITALE</div><h1>Più calcio.<br><em>Meno fogli sparsi.</em></h1><p>Convocazioni, presenze, squadre equilibrate e statistiche. Tutto a portata di mister.</p><button class="btn primary" data-go="training">Prepara l'allenamento →</button></div>
-      <div class="metric-grid"><div class="metric"><div class="metric-num">${state.players.length}</div><div class="metric-label">Giocatori in rosa</div></div><div class="metric"><div class="metric-num">${certifiedIds(today()).length}</div><div class="metric-label">Confermati oggi</div></div><div class="metric"><div class="metric-num">${state.matches.length}</div><div class="metric-label">Partite registrate</div></div></div>
+      <div class="metric-grid"><div class="metric"><div class="metric-num">${officialPlayers().length}</div><div class="metric-label">Giocatori in rosa</div></div><div class="metric"><div class="metric-num">${certifiedIds(today()).length}</div><div class="metric-label">Confermati oggi</div></div><div class="metric"><div class="metric-num">${state.matches.length}</div><div class="metric-label">Partite registrate</div></div></div>
       <div class="quick-actions" style="margin-bottom:16px"><button class="quick-card" data-go="roster"><span class="quick-icon">♙</span><strong>Gestisci la rosa</strong><small>Aggiungi giocatori, ruoli e livello.</small></button><button class="quick-card" data-go="matches"><span class="quick-icon">▦</span><strong>Prepara la gara</strong><small>Formazione sul campo ed eventi.</small></button></div>
-      ${state.players.length===0?`<div class="card"><div class="card-title"><h2>Inizia da qui</h2><span class="tag orange">Prima configurazione</span></div><p class="hint">Inserisci i tuoi giocatori oppure carica 18 nomi fittizi per provare subito l'app.</p><div class="button-row"><button class="btn primary" data-go="roster">Aggiungi giocatore</button><button class="btn secondary" data-action="demo">Prova con 18 giocatori</button></div></div>`:''}
+      ${officialPlayers().length===0?`<div class="card"><div class="card-title"><h2>Inizia da qui</h2><span class="tag orange">Prima configurazione</span></div><p class="hint">Inserisci i tuoi giocatori oppure carica 18 nomi fittizi per provare subito l'app.</p><div class="button-row"><button class="btn primary" data-go="roster">Aggiungi giocatore</button><button class="btn secondary" data-action="demo">Prova con 18 giocatori</button></div></div>`:''}
       <div class="card"><div class="card-title"><h2>In evidenza</h2><span class="tag">La tua settimana</span></div><div class="stack"><div class="player-row"><div class="number-badge">◈</div><div class="person-info"><strong>Ultimo esercizio</strong><small>${last?`${esc(last.title)} · ${fmtDate(last.date)} · ${last.groups.length} squadre`:'Nessun esercizio salvato'}</small></div><button class="btn small secondary" data-go="training">Apri</button></div><div class="player-row"><div class="number-badge">▦</div><div class="person-info"><strong>Prossima partita</strong><small>${upcoming?`${fmtDate(upcoming.date)} · ${esc(upcoming.opponent)}`:'Nessuna partita futura in calendario'}</small></div><button class="btn small secondary" data-go="matches">Apri</button></div></div></div>`;
   }
 
@@ -175,9 +222,10 @@
         <div class="form-group"><label for="pPrimary">Ruolo principale (priorità massima)</label><select id="pPrimary" name="primaryPosition" required>${optionsPositions(editing?.primaryPosition||'MEZ')}</select></div>
         <div class="form-group"><label for="pSecondary">Ruolo secondario (facoltativo)</label><select id="pSecondary" name="secondaryPosition">${optionsPositions(editing?.secondaryPosition||'',true)}</select><div class="form-hint">Esempio: un terzino destro che può fare il centrale. Viene usato da centrale soltanto dopo i centrali di ruolo, ove possibile.</div></div>
         <div class="form-group"><label for="pRating">Valutazione tecnica (da 1 a 5, anche mezze stelle)</label><select id="pRating" name="rating">${Array.from({length:9},(_,i)=>1+i*0.5).map(v=>`<option value="${v}" ${v===ratingValue(editing?.rating??3)?'selected':''}>${ratingLabel(v)} stelle su 5</option>`).join('')}</select><div id="ratingPreview" class="rating-preview" aria-live="polite">${ratingStars(editing?.rating??3)}</div><div class="form-hint">Puoi scegliere anche 2,5, 3,5 o 4,5 stelle. Il valore serve per bilanciare il livello delle squadre, senza scavalcare il ruolo principale.</div></div>
+        <label class="toggle-control" for="pIsDondo"><input type="checkbox" id="pIsDondo" ${editing?.isDondo?'checked':''}><span><strong>Questo giocatore è il Jolly Dondo</strong><small>Lo userai solo per completare le partitelle o come sponda nei possessi. Non entra in presenze, partite e statistiche ufficiali.</small></span></label>
         <div class="button-row"><button class="btn primary" type="submit">${editing?'Salva modifiche':'Aggiungi in rosa'}</button>${editing?'<button type="button" class="btn secondary" data-action="cancel-edit">Annulla</button>':''}</div>
       </form></div>
-      <div class="card"><div class="card-title"><h2>Elenco giocatori</h2><span class="tag">${players.length}</span></div>${players.length?`<div class="player-list">${players.map(p=>`<div class="player-row"><div class="number-badge">${p.number}</div><div class="person-info"><strong>${esc(p.name)}</strong><small>${esc(positionLine(p))}</small><div class="rating-in-list">${ratingStars(p.rating)}</div></div><div class="player-actions"><button type="button" class="icon-btn" aria-label="Modifica ${esc(p.name)}" data-action="edit-player" data-id="${esc(p.id)}">✎</button><button type="button" class="icon-btn" aria-label="Elimina ${esc(p.name)}" data-action="delete-player" data-id="${esc(p.id)}">✕</button></div></div>`).join('')}</div>`:`<div class="empty"><span class="empty-icon">⚽</span>La rosa è vuota. Inserisci il primo giocatore o usa la demo.</div><button class="btn secondary full" style="margin-top:12px" data-action="demo">Carica 18 giocatori di esempio</button>`}</div></div>
+      <div class="card"><div class="card-title"><h2>Elenco giocatori</h2><span class="tag">${players.length}</span></div>${players.length?`<div class="player-list">${players.map(p=>`<div class="player-row"><div class="number-badge">${p.number}</div><div class="person-info"><strong>${esc(p.name)}${p.isDondo?' <span class="tag orange">JOLLY DONDO</span>':''}</strong><small>${esc(positionLine(p))}</small><div class="rating-in-list">${ratingStars(p.rating)}</div></div><div class="player-actions"><button type="button" class="icon-btn" aria-label="Modifica ${esc(p.name)}" data-action="edit-player" data-id="${esc(p.id)}">✎</button><button type="button" class="icon-btn" aria-label="Elimina ${esc(p.name)}" data-action="delete-player" data-id="${esc(p.id)}">✕</button></div></div>`).join('')}</div>`:`<div class="empty"><span class="empty-icon">⚽</span>La rosa è vuota. Inserisci il primo giocatore o usa la demo.</div><button class="btn secondary full" style="margin-top:12px" data-action="demo">Carica 18 giocatori di esempio</button>`}</div></div>
       <div class="card"><div class="card-title"><h2>Backup e trasferimento dati</h2><span class="tag orange">Solo su questo dispositivo</span></div><p class="hint">I dati sono salvati nel browser di questo telefono. Esporta una copia JSON: puoi importarla su un altro telefono o dopo aver reinstallato l'app.</p><div class="button-row"><button class="btn secondary" data-action="export">↓ Esporta backup</button><button class="btn ghost" data-action="choose-import">↑ Importa backup</button></div><input id="importInput" type="file" accept=".json,application/json" hidden><div class="warning-note" style="margin-top:14px">Non usare la cancellazione dei dati del browser senza prima aver esportato un backup. In questa versione non esiste sincronizzazione cloud.</div></div>`;
   }
 
@@ -186,10 +234,36 @@
     for(const s of state.sessions||[])for(const id of s.bench||[]) if(id in count) count[id]++;
     return count;
   }
+  // Dondo does not need a certified attendance and never changes official stats.
+  // For possession exercises, sponde are removed from the team pool first.
+  function trainingSelection(){
+    const base=certifiedIds().filter(id=>ui.includeGoalkeepers || person(id)?.primaryPosition!=='POR');
+    const dondo=ui.useDondo?dondoPlayer():null;
+    const sponde=[];
+    const selected=new Set();
+    const requested=ui.exercise==='possesso'?Math.max(0,Math.min(12,Number(ui.spondeCount)||0)):0;
+    if(requested>0 && dondo && ui.dondoMode==='jolly' && (ui.includeGoalkeepers||dondo.primaryPosition!=='POR')){
+      sponde.push(dondo.id);selected.add(dondo.id);
+    }
+    // Prefer midfielders/attackers as possession-support players; keep keepers on the field.
+    const candidates=base.filter(id=>person(id)?.primaryPosition!=='POR').sort((a,b)=>{
+      const x=person(a),y=person(b);
+      const rank=p=>p.role==='CEN'?0:p.role==='ATT'?1:2;
+      return rank(x)-rank(y) || (Number(y.rating)||3)-(Number(x.rating)||3) || x.name.localeCompare(y.name);
+    });
+    for(const id of candidates){if(sponde.length>=requested)break;if(!selected.has(id)){sponde.push(id);selected.add(id);}}
+    if(sponde.length<requested)return {teamIds:[],sponde,error:'Non ci sono abbastanza giocatori di movimento per tutte le sponde richieste.'};
+    const teamIds=base.filter(id=>!selected.has(id));
+    if(dondo && ui.dondoMode==='squadre' && (ui.includeGoalkeepers||dondo.primaryPosition!=='POR'))teamIds.push(dondo.id);
+    return {teamIds,sponde,dondoJoker:dondo && ui.dondoMode==='jolly' && !selected.has(dondo.id)?dondo.id:null};
+  }
   function generateGroups(){
     if(!certifiedRecord() || ui.editingAttendance){toast('Prima certifica le presenze');return;}
+    if(ui.useDondo && !dondoPlayer()){toast('Registra prima il Jolly Dondo nella Rosa');return;}
     const ids=certifiedIds();
-    const selection=TACTICS.distributeTraining(ids,state.players,{
+    const pool=trainingSelection();
+    if(pool.error){toast(pool.error);return;}
+    const selection=TACTICS.distributeTraining(pool.teamIds,state.players,{
       teams:ui.teams,cap:ui.cap,extra:ui.extra,defense:ui.defense,formation:ui.formation,
       includeGoalkeepers:ui.includeGoalkeepers,restCounts:recentRestCounts()
     });
@@ -197,8 +271,10 @@
     ui.current={date:ui.date,title:ui.exercise,groups:selection.groups,
       slotsByGroup:selection.slotsByGroup,joker:selection.joker,bench:selection.bench,
       present:ids.slice(),cap:ui.cap,extra:ui.extra,includeGoalkeepers:ui.includeGoalkeepers,
-      defense:ui.defense,formation:selection.formation,goalkeeperSeats:selection.goalkeeperSeats,outfieldSize:selection.outfieldSize,createdAt:Date.now()};
-    renderTraining();toast('Squadre generate secondo i ruoli!');
+      defense:ui.defense,formation:selection.formation,goalkeeperSeats:selection.goalkeeperSeats,outfieldSize:selection.outfieldSize,
+      sponde:pool.sponde, dondoJoker:pool.dondoJoker, useDondo:ui.useDondo, dondoMode:ui.dondoMode,
+      createdAt:Date.now()};
+    renderTraining();toast('Squadre e sponde generate!');
   }
   function renderTrainingTeam(c,i){
     const group=c.groups[i]||[];
@@ -223,14 +299,15 @@
     const confirmed=certifiedRecord();
     const editable=isAttendanceEditable();
     const present=new Set(editable?presentIds():certifiedIds());
-    const players=orderPlayers(state.players);
+    const players=orderPlayers(officialPlayers());
     const c=ui.current && ui.current.date===ui.date && confirmed && !ui.editingAttendance ? ui.current : null;
     const labels={partitella:'Partitella',possesso:'Possesso palla',rondo:'Rondo / stazioni',personalizzato:'Personalizzato'};
     const certifiedDates=Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
     const trainingDates=[...new Set([...Object.keys(state.attendance),...certifiedDates,...state.sessions.map(s=>s.date)])].filter(Boolean).sort((a,b)=>b.localeCompare(a));
     const canGenerate=!!confirmed && !ui.editingAttendance;
-    const eligible=certifiedIds().filter(id=>ui.includeGoalkeepers || person(id)?.primaryPosition!=='POR');
-    const plan=TACTICS.trainingPlan(certifiedIds(),state.players,{teams:ui.teams,cap:ui.cap,includeGoalkeepers:ui.includeGoalkeepers});
+    const pool=trainingSelection();
+    const eligible=pool.teamIds||[];
+    const plan=TACTICS.trainingPlan(eligible,state.players,{teams:ui.teams,cap:ui.cap,includeGoalkeepers:ui.includeGoalkeepers});
     const formationOptions=TACTICS.trainingFormationsFor(plan.outfieldSize,ui.defense);
     const shownFormation=formationOptions.includes(ui.formation)?ui.formation:'auto';
     const suggestedFormation=formationOptions[0]||'assetto libero';
@@ -252,6 +329,11 @@
       <div class="two-col"><div class="form-group"><label for="teamCount">Numero squadre</label><select id="teamCount">${[2,3,4].map(v=>`<option value="${v}" ${ui.teams===v?'selected':''}>${v} squadre</option>`).join('')}</select></div><div class="form-group"><label for="teamCap">Max giocatori/squadra</label><input id="teamCap" type="number" min="0" max="30" value="${ui.cap}" placeholder="0"></div></div>
       <div class="form-hint">0 = dividi tutti i giocatori disponibili. Esempio: 18 = 9 contro 9; 17 = 8 contro 8 con jolly o riserva, quando non si escludono portieri.</div>
       <label class="toggle-control" for="includeGoalkeepers"><input type="checkbox" id="includeGoalkeepers" ${ui.includeGoalkeepers?'checked':''}><span><strong>Includi i portieri</strong><small>Disattiva per escludere tutti i portieri dalla creazione delle squadre, ma non dalle presenze certificate.</small></span></label>
+      <div class="formation-settings"><strong>Jolly Dondo</strong>
+      <label class="toggle-control" for="useDondo"><input type="checkbox" id="useDondo" ${ui.useDondo?'checked':''} ${dondoPlayer()?'':'disabled'}><span><strong>Attiva Jolly Dondo</strong><small>${dondoPlayer()?`${esc(dondoPlayer().name)} · ${esc(positionName(dondoPlayer()))} · ${ratingLabel(dondoPlayer().rating)} stelle. Non conta nelle statistiche.`:'Prima registra un giocatore come “Jolly Dondo” nella sezione Rosa.'}</small></span></label>
+      ${ui.useDondo && dondoPlayer()?`<div class="form-group"><label for="dondoMode">Utilizzo di Dondo</label><select id="dondoMode"><option value="jolly" ${ui.dondoMode==='jolly'?'selected':''}>Jolly neutrale (o sponda nel possesso)</option><option value="squadre" ${ui.dondoMode==='squadre'?'selected':''}>Giocatore aggiuntivo per completare le squadre</option></select><div class="form-hint">Esempio: 17 presenti + Dondo nelle squadre = 9 contro 9. Con 16 presenti + Dondo jolly = 8 contro 8 più jolly.</div></div>`:''}
+      ${ui.exercise==='possesso'?`<div class="form-group"><label for="spondeCount">Numero di sponde nel possesso</label><input id="spondeCount" type="number" min="0" max="12" value="${ui.spondeCount}"><div class="form-hint">Le sponde sono scelte fra i presenti certificati e mostrate a parte. Se Dondo è attivo come jolly, diventa la prima sponda.</div></div>`:''}
+      ${pool.error?`<p class="warning-note">${esc(pool.error)}</p>`:''}</div>
       <div class="formation-settings"><strong>Modulo tattico per ogni squadra</strong>
       <p class="hint">${plan.size>0?`Con ${eligible.length} disponibili: <b>${plan.size} giocatori per squadra</b> (${plan.outfieldSize} di movimento${plan.keeperSeats?' + 1 portiere':''}).`:'Seleziona i giocatori per conoscere i moduli disponibili.'} I numeri del modulo <b>non comprendono il portiere</b>.</p>${plan.keeperSeats && plan.keeperCount<plan.numberOfTeams?`<p class="warning-note">Attenzione: ci sono solo ${plan.keeperCount} portieri certificati per ${plan.numberOfTeams} squadre. Potrebbe essere adattato un giocatore di movimento in porta.</p>`:''}
       <div class="form-group"><label for="defenseStyle">Linea difensiva</label><select id="defenseStyle"><option value="4" ${ui.defense===4?'selected':''}>Difesa a 4 · terzino SX, 2 centrali, terzino DX</option><option value="3" ${ui.defense===3?'selected':''}>Difesa a 3 · braccetto SX, centrale, braccetto DX</option></select></div>
@@ -262,8 +344,9 @@
       <button class="btn primary full" data-action="generate" ${eligible.length<Math.max(2,ui.teams)*2?'disabled':''}>Genera squadre con il modulo</button></div>
       <p class="hint">Il generatore usa esclusivamente i confermati disponibili, dà priorità ai ruoli principali e poi ai secondari, e cerca di bilanciare il livello. Puoi sempre scambiare giocatori a mano.</p>`}</div></div>
       ${c?`<div class="card" id="generated"><div class="card-title"><h2>Squadre generate</h2><span class="tag">${c.groups.map(g=>g.length).join(' vs ')}</span></div><p class="hint" style="margin:0 0 14px"><strong>Modulo ${esc(c.formation||'libero')}</strong> · Difesa a ${c.defense||4} · ${c.outfieldSize??'—'} giocatori di movimento ${c.goalkeeperSeats?'+ portiere per squadra':''} · Portieri ${c.includeGoalkeepers===false?'esclusi':'inclusi'}.</p><div class="teams-grid">${c.groups.map((g,i)=>renderTrainingTeam(c,i)).join('')}</div>
-       <div class="special-list">${c.joker?`<div class="special"><strong>JOLLY:</strong> ${esc(display(c.joker))} · gioca con entrambe le squadre</div>`:''}${c.bench.length?`<div class="special"><strong>A RIPOSO:</strong> ${c.bench.map(id=>esc(display(id))).join(', ')}</div>`:''}</div><p class="hint">Puoi rigenerare le squadre o scambiare due giocatori.</p><div class="two-col"><div class="form-group"><label for="swapA">Primo giocatore</label><select id="swapA">${c.groups.flat().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div><div class="form-group"><label for="swapB">Secondo giocatore</label><select id="swapB">${c.groups.flat().slice().reverse().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div></div><div class="button-row" style="margin-top:12px"><button class="btn secondary" data-action="swap">Scambia</button><button class="btn primary" data-action="save-session">Salva esercizio</button></div></div>`:''}
-      <div class="card"><div class="card-title"><h2>Storico esercizi</h2><span class="tag">${state.sessions.length} salvati</span></div>${state.sessions.length?state.sessions.slice(0,12).map(s=>`<div class="session"><div><strong>${esc(labels[s.title]||s.title||'Esercizio')} · ${s.groups.map(g=>g.length).join(' vs ')}${s.formation?' · '+esc(s.formation):''}</strong><small>${fmtDate(s.date)} · ${s.present.length} presenti ${s.needsReview?'<span class="text-warn">· Presenze modificate: da rigenerare</span>':''}</small></div><div class="record-actions"><button class="btn small secondary" data-action="load-session" data-id="${esc(s.id)}">${s.needsReview?'Rigenera':'Vedi'}</button><button class="btn small danger" data-action="delete-session" data-id="${esc(s.id)}" aria-label="Elimina esercizio ${esc(labels[s.title]||s.title||'salvato')} del ${fmtDate(s.date)}">Elimina</button></div></div>`).join(''):'<div class="empty">Qui troverai le squadre salvate allenamento per allenamento.</div>'}</div>
+       ${c.sponde?.length?`<div class="sponde-preview"><div class="sponde-heading"><span>◉ SPONDE DEL POSSESSO</span><strong>${c.sponde.length} spond${c.sponde.length===1?'a':'e'}</strong></div><div class="sponde-players">${c.sponde.map(id=>{const p=person(id);return `<div class="sponda-chip"><span class="sponda-number">${p?.number??'?'}</span><div><strong>${esc(p?.name||'Giocatore')}</strong><small>${esc(positionName(p))}${p?.isDondo?' · Jolly Dondo':''}</small></div></div>`;}).join('')}</div></div>`:''}
+       <div class="special-list">${c.dondoJoker?`<div class="special"><strong>JOLLY DONDO:</strong> ${esc(display(c.dondoJoker))} · fuori dalle squadre, non contabilizzato</div>`:''}${c.joker?`<div class="special"><strong>JOLLY:</strong> ${esc(display(c.joker))} · gioca con entrambe le squadre</div>`:''}${c.bench.length?`<div class="special"><strong>A RIPOSO:</strong> ${c.bench.map(id=>esc(display(id))).join(', ')}</div>`:''}</div><p class="hint">Puoi rigenerare le squadre o scambiare due giocatori.</p><div class="two-col"><div class="form-group"><label for="swapA">Primo giocatore</label><select id="swapA">${c.groups.flat().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div><div class="form-group"><label for="swapB">Secondo giocatore</label><select id="swapB">${c.groups.flat().slice().reverse().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div></div><div class="button-row" style="margin-top:12px"><button class="btn secondary" data-action="swap">Scambia</button><button class="btn primary" data-action="save-session">Salva esercizio</button></div></div>`:''}
+      <div class="card"><div class="card-title"><h2>Storico esercizi</h2><span class="tag">${state.sessions.length} salvati</span></div>${state.sessions.length?state.sessions.slice(0,12).map(s=>`<div class="session"><div><strong>${esc(labels[s.title]||s.title||'Esercizio')} · ${s.groups.map(g=>g.length).join(' vs ')}${s.formation?' · '+esc(s.formation):''}${s.sponde?.length?' · '+s.sponde.length+' sponde':''}${s.useDondo?' · Dondo':''}</strong><small>${fmtDate(s.date)} · ${s.present.length} presenti ${s.needsReview?'<span class="text-warn">· Presenze modificate: da rigenerare</span>':''}</small></div><div class="record-actions"><button class="btn small secondary" data-action="load-session" data-id="${esc(s.id)}">${s.needsReview?'Rigenera':'Vedi'}</button><button class="btn small danger" data-action="delete-session" data-id="${esc(s.id)}" aria-label="Elimina esercizio ${esc(labels[s.title]||s.title||'salvato')} del ${fmtDate(s.date)}">Elimina</button></div></div>`).join(''):'<div class="empty">Qui troverai le squadre salvate allenamento per allenamento.</div>'}</div>
       <div class="card"><div class="card-title"><h2>Registro allenamenti</h2><span class="tag">${certifiedDates.length} certificati</span></div>${trainingDates.length?trainingDates.slice(0,20).map(d=>`<div class="session"><div><strong>${fmtDate(d)}</strong><small>${certifiedRecord(d)?`${certifiedIds(d).length} presenti certificati`:'Bozza non certificata'} · ${state.sessions.filter(s=>s.date===d).length} esercizi salvati</small></div><div class="record-actions"><button class="btn small secondary" data-action="open-training" data-date="${esc(d)}">Apri / correggi</button><button class="btn small danger" data-action="delete-training" data-date="${esc(d)}" aria-label="Elimina allenamento del ${fmtDate(d)}">Elimina</button></div></div>`).join(''):'<div class="empty">Il registro sara visibile dopo il primo allenamento registrato.</div>'}<p class="hint">Eliminando una data vengono rimosse le presenze e tutti gli esercizi salvati di quel giorno.</p></div>`;
   }
 
@@ -273,9 +356,9 @@
   function availabilityIds(m,metrics){
     const dates=certifiedDatesNewest().filter(d=>d<m.date);
     const source=m.autoSource||'all';
-    if(source==='week')return state.players.filter(p=>(metrics.byId[p.id]?.trainings||0)>0).map(p=>p.id);
-    if(source==='latest')return dates.length?certifiedIds(dates[0]):state.players.map(p=>p.id);
-    if(source==='all')return state.players.map(p=>p.id);
+    if(source==='week')return officialPlayers().filter(p=>(metrics.byId[p.id]?.trainings||0)>0).map(p=>p.id);
+    if(source==='latest')return dates.length?certifiedIds(dates[0]):officialPlayers().map(p=>p.id);
+    if(source==='all')return officialPlayers().map(p=>p.id);
     return source<m.date?certifiedIds(source):[];
   }
   function autoLineup(m){
@@ -290,7 +373,7 @@
   }
   function cleanBench(m){
     const starting=new Set((m.lineup||[]).filter(Boolean));
-    m.benchIds=[...new Set((m.benchIds||[]).filter(id=>person(id)&&!starting.has(id)))];
+    m.benchIds=[...new Set((m.benchIds||[]).filter(id=>person(id)&&!person(id).isDondo&&!starting.has(id)))];
   }
   function renderPitch(m,editable=false){
     const slots=formationSlots(m.formation);
@@ -305,11 +388,11 @@
     const editing=editingMatch();
     const lined=m.lineup?.filter(Boolean)||[];
     const metrics=metricsForMatch(m);
-    const bench=orderPlayers(state.players.filter(p=>!lined.includes(p.id)));
+    const bench=orderPlayers(officialPlayers().filter(p=>!lined.includes(p.id)));
     const selectedBench=bench.filter(p=>m.benchIds.includes(p.id));
     const fromMatch=(m.events||[]);
     const currentEvent=editing ? fromMatch.find(e=>e.id===ui.editingEventId) : null;
-    const selectedFilter=ui.eventType==='clean'?(p=>p.primaryPosition==='POR'):null;
+    const selectedFilter=null;
     const trainingDates=certifiedDatesNewest().filter(d=>d<m.date);
     const source=m.autoSource||'all';
     const sourceOptions=`<option value="all" ${source==='all'?'selected':''}>Tutta la rosa (consigliato)</option><option value="week" ${source==='week'?'selected':''}>Solo chi si è allenato questa settimana</option>${trainingDates.length?`<option value="latest" ${source==='latest'?'selected':''}>Ultimo allenamento prima della partita (${fmtDate(trainingDates[0])})</option>`:''}${trainingDates.map(d=>`<option value="${esc(d)}" ${source===d?'selected':''}>Allenamento ${fmtDate(d)} · ${certifiedIds(d).length} presenti</option>`).join('')}`;
@@ -325,7 +408,7 @@
     const benchChooser=editing?`<p class="hint">Spunta i giocatori da convocare per la panchina. I non selezionati restano non convocati.</p><div class="bench-chooser">${bench.length?bench.map(p=>`<label class="bench-select ${m.benchIds.includes(p.id)?'is-selected':''}"><input type="checkbox" data-bench-id="${esc(p.id)}" ${m.benchIds.includes(p.id)?'checked':''}><span class="bench-detail"><strong>#${p.number} ${esc(p.name)}</strong><small>${esc(positionName(p))} · ${esc(formSummary(p,m,metrics))}</small></span></label>`).join(''):'<p class="hint">Nessun giocatore disponibile fuori dall’undici titolare.</p>'}</div>`:'';
     const results=editing?`<div class="two-col"><div><label for="gf">Gol fatti</label><input id="gf" data-result="gf" type="number" min="0" max="99" value="${m.gf??''}" placeholder="–"></div><div><label for="ga">Gol subiti</label><input id="ga" data-result="ga" type="number" min="0" max="99" value="${m.ga??''}" placeholder="–"></div></div><div class="form-hint">Il risultato viene salvato insieme alla partita quando premi «Salva modifiche».</div>`:
       `<div class="match-result-readonly"><strong>${score(m)}</strong><small>Risultato registrato</small></div>`;
-    const eventForm=editing?`<form id="eventForm" class="stack"><div class="two-col"><div><label for="eventType">Tipo evento</label><select id="eventType">${Object.entries(EVENTS).map(([k,v])=>`<option value="${k}" ${ui.eventType===k?'selected':''}>${v.title}</option>`).join('')}</select></div><div><label for="eventMinute">Minuto (opzionale)</label><input id="eventMinute" type="number" min="0" max="130" placeholder="Es. 64" value="${currentEvent?.minute??''}"></div></div><div><label for="eventPlayer">Giocatore</label><select id="eventPlayer" required>${pOptions(currentEvent?.playerId||'',selectedFilter)}</select></div>${ui.eventType==='gol'?`<div><label for="eventAssist">Assist di (facoltativo)</label><select id="eventAssist">${pOptions(currentEvent?.assistId||'')}</select><div class="form-hint">Se inserisci l'assist qui, non aggiungerlo una seconda volta come evento separato.</div></div>`:''}<div class="button-row"><button type="submit" class="btn primary" ${state.players.length===0?'disabled':''}>${currentEvent?'✓ Aggiorna evento':'+ Registra evento'}</button>${currentEvent?'<button type="button" class="btn secondary" data-action="cancel-event-edit">Annulla evento</button>':''}</div></form>`:'';
+    const eventForm=editing?`<form id="eventForm" class="stack"><div class="two-col"><div><label for="eventType">Tipo evento</label><select id="eventType">${Object.entries(EVENTS).filter(([k])=>k!=='clean').map(([k,v])=>`<option value="${k}" ${ui.eventType===k?'selected':''}>${v.title}</option>`).join('')}</select></div><div><label for="eventMinute">Minuto (opzionale)</label><input id="eventMinute" type="number" min="0" max="130" placeholder="Es. 64" value="${currentEvent?.minute??''}"></div></div><div><label for="eventPlayer">Giocatore</label><select id="eventPlayer" required>${pOptions(currentEvent?.playerId||'',selectedFilter)}</select></div>${ui.eventType==='gol'?`<div><label for="eventAssist">Assist di (facoltativo)</label><select id="eventAssist">${pOptions(currentEvent?.assistId||'')}</select><div class="form-hint">Se inserisci l'assist qui, non aggiungerlo una seconda volta come evento separato.</div></div>`:''}<div class="button-row"><button type="submit" class="btn primary" ${state.players.length===0?'disabled':''}>${currentEvent?'✓ Aggiorna evento':'+ Registra evento'}</button>${currentEvent?'<button type="button" class="btn secondary" data-action="cancel-event-edit">Annulla evento</button>':''}</div></form>`:'';
     return `<div class="card">${controls}<div class="card-title"><h2>Formazione ${esc(m.formation)}</h2><span class="tag">${lined.length}/11 titolari</span></div><div class="scoreline"><div class="club">La tua squadra</div><div class="versus">${score(m)}</div><div class="club" style="text-align:right">${esc(m.opponent)}</div></div>
     ${details}
     ${renderPitch(m,editing)}
@@ -335,7 +418,7 @@
     ${benchChooser}
     <div class="bench-summary"><strong>Panchina selezionata</strong><div class="bench-grid">${selectedBench.length?selectedBench.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)} · ${metrics.byId[p.id]?.trainings||0}/${metrics.weekDates.length} allen.</span>`).join(''):'<span class="hint">Nessuna riserva selezionata</span>'}</div></div>
     <hr class="section-divider"><div class="card-title"><h3>Risultato finale</h3><span class="tag">Facoltativo</span></div>${results}</div>
-    <div class="card"><div class="card-title"><h2>Eventi partita</h2><span class="tag">${fromMatch.length} eventi</span></div>${eventForm}
+    <div class="card"><div class="card-title"><h2>Eventi partita</h2><span class="tag">${fromMatch.length} eventi</span></div><p class="hint">🧤 Porta inviolata automatica: se il portiere è titolare e i gol subiti sono 0, viene assegnata nelle statistiche senza inserire eventi manuali.</p>${m.ga===0&&m.lineup?.[0]&&person(m.lineup[0])?.primaryPosition==='POR'?`<div class="clean-auto">🧤 Porta inviolata a <strong>${esc(display(m.lineup[0]))}</strong> contro ${esc(m.opponent)} · ${fmtDate(m.date)}</div>`:''}${eventForm}
     ${fromMatch.length?`<hr class="section-divider"><div class="event-list">${fromMatch.map(e=>`<div class="event-item"><div class="event-emoji">${EVENTS[e.type]?.symbol||'•'}</div><div class="event-main"><strong>${EVENTS[e.type]?.title||e.type} · ${esc(display(e.playerId))}</strong><small>${e.minute!==null&&e.minute!==undefined?`${e.minute}' · `:''}${e.assistId?`Assist: ${esc(display(e.assistId))}`:'Evento registrato'}</small></div>${editing?`<div class="event-actions"><button class="btn small secondary" data-action="edit-event" data-id="${esc(e.id)}">Modifica</button><button class="icon-btn" aria-label="Rimuovi evento" data-action="delete-event" data-id="${esc(e.id)}">✕</button></div>`:''}</div>`).join('')}</div>`:'<div class="empty" style="margin-top:15px">Nessun gol, assist o altro evento registrato.</div>'}
     ${editing?`<div class="match-save-footer"><span>Modifiche non ancora salvate</span><button type="button" class="btn primary" data-action="save-match-edit">✓ Salva modifiche</button><button type="button" class="btn secondary" data-action="cancel-match-edit">Annulla</button></div>`:
       `<div class="button-row" style="margin-top:18px"><button class="btn primary" data-action="download-graphic">↓ Esporta grafica PNG</button><button class="btn secondary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button><button class="btn danger" data-action="delete-match">Elimina partita</button></div>`}</div>`;
@@ -374,7 +457,7 @@
     const eventCount=state.matches.reduce((n,m)=>n+(m.events||[]).length,0);
     const days=Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
     const avg=days.length?Math.round(days.reduce((sum,d)=>sum+certifiedIds(d).length,0)/days.length*10)/10:0;
-    const records=state.players.map(p=>{
+    const records=officialPlayers().map(p=>{
       const v=statsFor(p.id);
       return {p,...v,rating:ratingValue(p.rating),name:p.name,percentage:days.length?v.trainings/days.length*100:0};
     });
@@ -393,11 +476,11 @@
       return `<th scope="col" aria-sort="${ariaSort}"><button type="button" class="stat-sort ${active?'is-active':''}" data-action="sort-stats" data-key="${column.key}" title="${esc(column.title)}: ordina con un tocco" aria-label="Ordina per ${esc(column.title)}${active?(ui.statsSort.dir==='asc'?', attualmente crescente':', attualmente decrescente'):''}"><span>${column.label}</span><span class="stat-sort-arrow" aria-hidden="true">${arrow}</span></button></th>`;
     }).join('');
     el('stats').innerHTML=`
-      ${pageHead('04 / STATISTICHE','Numeri della squadra','Presenze certificate agli allenamenti, gol, assist e rendimento partita.')}
+      ${pageHead('04 / STATISTICHE','Numeri della squadra','Tocca un giocatore per vedere gol, assist, porte inviolate e avversari.')}
       <div class="metric-grid"><div class="metric"><div class="metric-num">${days.length}</div><div class="metric-label">Allenamenti certificati</div></div><div class="metric"><div class="metric-num">${avg}</div><div class="metric-label">Media presenti</div></div><div class="metric"><div class="metric-num">${state.matches.length}</div><div class="metric-label">Partite registrate</div></div></div>
-      <div class="card"><div class="card-title"><h2>Statistiche individuali</h2><span class="tag">${records.length} giocatori</span></div>${records.length?`<p class="stat-sort-hint">Tocca una colonna per ordinare. Tocca di nuovo per invertire: <strong>${esc(selected.title)} ${ui.statsSort.dir==='asc'?'↑ crescente':'↓ decrescente'}</strong>.</p><div class="table-scroll" tabindex="0" aria-label="Tabella statistiche scorrevole orizzontalmente"><table class="stat-table"><thead><tr>${headers}</tr></thead><tbody>${records.map(({p,...v})=>`<tr data-stat-id="${esc(p.id)}"><td>#${p.number} ${esc(p.name)}</td><td>${ratingStars(p.rating,true)}</td><td><strong class="text-lime">${v.trainings}</strong></td><td>${days.length?Math.round(v.percentage)+'%':'—'}</td><td>${v.matches}</td><td>${v.gols}</td><td>${v.assists}</td><td>${v.ogs}</td><td>${v.cs}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Inserisci dei giocatori e certifica gli allenamenti per vedere le statistiche.</div>'}<p class="hint">Allen. e % Pres. considerano soltanto le date certificate. Se correggi e ricertifichi una data, i totali si aggiornano automaticamente, senza raddoppi.</p></div>
+      <div class="card"><div class="card-title"><h2>Statistiche individuali</h2><span class="tag">${records.length} giocatori</span></div>${records.length?`<p class="stat-sort-hint">Tocca una colonna per ordinare. Tocca di nuovo per invertire: <strong>${esc(selected.title)} ${ui.statsSort.dir==='asc'?'↑ crescente':'↓ decrescente'}</strong>.</p><div class="table-scroll" tabindex="0" aria-label="Tabella statistiche scorrevole orizzontalmente"><table class="stat-table"><thead><tr>${headers}</tr></thead><tbody>${records.map(({p,...v})=>`<tr data-stat-id="${esc(p.id)}"><td><button type="button" class="player-stat-link" data-action="open-player-profile" data-id="${esc(p.id)}" aria-label="Apri statistiche di ${esc(p.name)}">#${p.number} ${esc(p.name)} <span aria-hidden="true">↗</span></button></td><td>${ratingStars(p.rating,true)}</td><td><strong class="text-lime">${v.trainings}</strong></td><td>${days.length?Math.round(v.percentage)+'%':'—'}</td><td>${v.matches}</td><td>${v.gols}</td><td>${v.assists}</td><td>${v.ogs}</td><td>${v.cs}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Inserisci dei giocatori e certifica gli allenamenti per vedere le statistiche.</div>'}<p class="hint">Allen. e % Pres. considerano soltanto le date certificate. Se correggi e ricertifichi una data, i totali si aggiornano automaticamente, senza raddoppi.</p></div>
       <div class="card"><div class="card-title"><h2>Presenze per allenamento</h2><span class="tag">Registro certificato</span></div>${days.length?days.slice(0,15).map(d=>`<div class="attendance-history"><div class="attendance-history-title"><strong>${fmtDate(d)}</strong><span class="pill">${certifiedIds(d).length} presenti</span></div><p>${certifiedIds(d).length?orderPlayers(state.players.filter(p=>certifiedIds(d).includes(p.id))).map(p=>esc(p.name)).join(' · '):'Nessun giocatore presente'}</p><div class="record-actions"><button class="btn small secondary" data-action="open-training" data-date="${esc(d)}">Visualizza / correggi</button><button class="btn small danger" data-action="delete-training" data-date="${esc(d)}" aria-label="Elimina allenamento del ${fmtDate(d)}">Elimina</button></div></div>`).join(''):'<div class="empty">Nessun allenamento certificato. Vai su Training, segna le presenze e certifica.</div>'}</div>
-      <div class="card"><div class="card-title"><h2>Legenda</h2><span class="tag">Calcolo</span></div><p class="hint">Gol e assist vengono dai tabellini delle partite. La porta inviolata viene assegnata al portiere dopo la registrazione dell'evento. Le presenze negli allenamenti sono indipendenti dal salvataggio degli esercizi.</p></div>`;
+      <div class="card"><div class="card-title"><h2>Legenda</h2><span class="tag">Calcolo</span></div><p class="hint">Gol e assist vengono dai tabellini delle partite. La porta inviolata si assegna automaticamente al portiere titolare quando il risultato registra zero gol subiti. Le presenze negli allenamenti sono indipendenti dal salvataggio degli esercizi.</p></div>`;
     if(horizontalScroll!==null){const scroller=el('stats').querySelector('.table-scroll');if(scroller)scroller.scrollLeft=horizontalScroll;}
   }
 
@@ -420,13 +503,14 @@
   }
   function playerFormSubmit(){
     const name=el('pName')?.value.trim(),number=Number(el('pNum')?.value),
-      primaryPosition=el('pPrimary')?.value,secondaryPosition=el('pSecondary')?.value||'',rating=Number(el('pRating')?.value);
+      primaryPosition=el('pPrimary')?.value,secondaryPosition=el('pSecondary')?.value||'',rating=Number(el('pRating')?.value),isDondo=!!el('pIsDondo')?.checked;
     if(!name||name.length>50||!Number.isInteger(number)||number<0||number>99||
       !TACTICS.POSITIONS[primaryPosition]||(secondaryPosition&&!TACTICS.POSITIONS[secondaryPosition])||
       !Number.isFinite(rating)||rating<1||rating>5||!Number.isInteger(rating*2)){toast('Controlla i dati del giocatore');return;}
     if(secondaryPosition===primaryPosition){toast('Il ruolo secondario deve essere diverso dal principale');return;}
     if(state.players.some(p=>p.number===number&&p.id!==ui.editPlayerId)){toast('Numero di maglia già assegnato');return;}
-    const payload=TACTICS.normalizePlayer({name,number,rating,primaryPosition,secondaryPosition});
+    if(isDondo && state.players.some(p=>p.isDondo && p.id!==ui.editPlayerId)){toast('C’è già un Jolly Dondo: modifica quel giocatore oppure togli prima il flag.');return;}
+    const payload=TACTICS.normalizePlayer({name,number,rating,primaryPosition,secondaryPosition,isDondo});
     if(ui.editPlayerId){const p=person(ui.editPlayerId);if(p)Object.assign(p,payload);ui.editPlayerId=null;toast('Giocatore aggiornato');}
     else {state.players.push({...payload,id:uid()});toast('Giocatore aggiunto');}
     ui.current=null;save();renderRoster();
@@ -438,7 +522,7 @@
     for(const date in state.attendance)state.attendance[date]=state.attendance[date].filter(x=>x!==id);
     for(const date in state.attendanceCertified)state.attendanceCertified[date].ids=state.attendanceCertified[date].ids.filter(x=>x!==id);
     for(const m of state.matches){m.lineup=m.lineup.map(x=>x===id?null:x);m.benchIds=(m.benchIds||[]).filter(x=>x!==id);m.events=m.events.filter(e=>e.playerId!==id).map(e=>({...e,assistId:e.assistId===id?null:e.assistId}));}
-    state.sessions=state.sessions.map(s=>({...s,groups:s.groups.map(g=>g.filter(x=>x!==id)),present:s.present.filter(x=>x!==id),joker:s.joker===id?null:s.joker,bench:s.bench.filter(x=>x!==id)}));
+    state.sessions=state.sessions.map(s=>({...s,groups:s.groups.map(g=>g.filter(x=>x!==id)),present:s.present.filter(x=>x!==id),joker:s.joker===id?null:s.joker,dondoJoker:s.dondoJoker===id?null:s.dondoJoker,sponde:(s.sponde||[]).filter(x=>x!==id),bench:s.bench.filter(x=>x!==id)}));
     ui.current=null;ui.editPlayerId=null;save();renderRoster();toast('Giocatore eliminato');
   }
   function createMatch(){
@@ -451,7 +535,7 @@
   function addEvent(){
     const m=matchById();if(!m)return;
     const type=el('eventType')?.value,playerId=el('eventPlayer')?.value,minuteText=el('eventMinute')?.value,minute=minuteText===''?null:Number(minuteText),assistId=type==='gol'?(el('eventAssist')?.value||null):null;
-    if(!EVENTS[type]||!person(playerId)){toast('Seleziona un giocatore');return;}
+    if(!EVENTS[type]||!person(playerId)||person(playerId).isDondo){toast('Seleziona un giocatore ufficiale');return;}
     if(type==='clean'&&person(playerId).primaryPosition!=='POR'){toast('La porta inviolata è riservata ai portieri');return;}
     if(minute!==null&&(!Number.isInteger(minute)||minute<0||minute>130)){toast('Il minuto deve essere da 0 a 130');return;}
     if(assistId===playerId){toast('Il marcatore non può assistere se stesso');return;}
@@ -469,17 +553,17 @@
     el('modalTitle').textContent=`${slot.label} · Seleziona giocatore`;
     const current=m.lineup[slotIndex];
     const metrics=metricsForMatch(m);
-    const list=orderPlayers(state.players).sort((a,b)=>
+    const list=orderPlayers(officialPlayers()).sort((a,b)=>
       (TACTICS.positionCost(a,slot.position)*3-(metrics.byId[a.id]?.formScore||0))-
       (TACTICS.positionCost(b,slot.position)*3-(metrics.byId[b.id]?.formScore||0)));
     el('modalBody').innerHTML=`<div class="modal-options"><div class="form-hint">Settimana ${fmtDate(metrics.weekStart)} – ${fmtDate(m.date)} · ${metrics.weekDates.length} allenamenti certificati</div><button class="modal-option" data-action="assign-player" data-index="${slotIndex}" data-id=""><strong>— Lascia libero questo posto</strong></button>${list.map(p=>`<button class="modal-option ${current===p.id?'selected':''}" data-action="assign-player" data-index="${slotIndex}" data-id="${esc(p.id)}"><strong>#${p.number} · ${esc(p.name)} ${current===p.id?'✓':''}</strong><small>${TACTICS.preferredQuality(p,slot.position)} · ${esc(positionLine(p))} · Livello ${ratingLabel(p.rating)}/5</small><small class="modal-form">${esc(formSummary(p,m,metrics))}${m.benchIds?.includes(p.id)?' · In panchina':''}</small></button>`).join('')}</div>`;
     modal.hidden=false;document.body.style.overflow='hidden';
   }
-  function closeModal(){el('modal').hidden=true;document.body.style.overflow='';}
+  function closeModal(){el('modal').hidden=true;el('modal').classList.remove('profile-modal');document.body.style.overflow='';}
   function chooseSlot(slotIndex,id){
     const m=matchById();if(!m||slotIndex<0||slotIndex>=11)return;
     const old=m.lineup[slotIndex];
-    if(id && !person(id))return;
+    if(id && (!person(id)||person(id).isDondo))return;
     const other=id?m.lineup.indexOf(id):-1;
     if(other>=0&&other!==slotIndex)m.lineup[other]=old;
     m.lineup[slotIndex]=id||null;
@@ -495,7 +579,7 @@
     state.sessions.unshift(rec);save();renderTraining();toast('Esercizio salvato nello storico');
   }
   function updateAttendance(id,checked){
-    if(!person(id) || !isAttendanceEditable())return;
+    if(!person(id) || person(id).isDondo || !isAttendanceEditable())return;
     const group=new Set(presentIds());if(checked)group.add(id);else group.delete(id);
     state.attendance[ui.date]=[...group];ui.current=null;save();renderTraining();
   }
@@ -636,11 +720,14 @@
     if(target.id==='exercise'){
       ui.exercise=target.value;
       const preset={partitella:[2,0],possesso:[3,0],rondo:[4,4],personalizzato:[2,0]}[ui.exercise];
-      [ui.teams,ui.cap]=preset;ui.formation='auto';ui.current=null;renderTraining();return;
+      [ui.teams,ui.cap]=preset;ui.formation='auto';ui.spondeCount=ui.exercise==='possesso'?ui.spondeCount:0;ui.current=null;renderTraining();return;
     }
     if(target.id==='teamCount'){ui.teams=Number(target.value);ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='teamCap'){ui.cap=Math.max(0,Math.min(30,Number(target.value)||0));ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='extra'){ui.extra=target.value;ui.current=null;renderTraining();return;}
+    if(target.id==='useDondo'){ui.useDondo=target.checked;ui.formation='auto';ui.current=null;renderTraining();return;}
+    if(target.id==='dondoMode'){ui.dondoMode=target.value==='squadre'?'squadre':'jolly';ui.formation='auto';ui.current=null;renderTraining();return;}
+    if(target.id==='spondeCount'){ui.spondeCount=Math.max(0,Math.min(12,Number(target.value)||0));ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='includeGoalkeepers'){ui.includeGoalkeepers=target.checked;ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='defenseStyle'){ui.defense=Number(target.value)===3?3:4;ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='trainingFormation'){ui.formation=target.value;ui.current=null;renderTraining();return;}
@@ -672,11 +759,12 @@
     const b=event.target.closest('[data-action]');if(!b)return;
     const a=b.dataset.action,id=b.dataset.id;
     if(a==='sort-stats')sortStats(b.dataset.key);
+    else if(a==='open-player-profile')openPlayerProfile(id);
     else if(a==='demo')demo();
     else if(a==='cancel-edit'){ui.editPlayerId=null;renderRoster();}
     else if(a==='edit-player'){ui.editPlayerId=id;renderRoster();el('pName')?.focus();}
     else if(a==='delete-player')deletePlayer(id);
-    else if(a==='all-present'){if(!isAttendanceEditable())return;state.attendance[ui.date]=state.players.map(p=>p.id);ui.current=null;save();renderTraining();}
+    else if(a==='all-present'){if(!isAttendanceEditable())return;state.attendance[ui.date]=officialPlayers().map(p=>p.id);ui.current=null;save();renderTraining();}
     else if(a==='none-present'){if(!isAttendanceEditable())return;state.attendance[ui.date]=[];ui.current=null;save();renderTraining();}
     else if(a==='certify-attendance')certifyAttendance();
     else if(a==='edit-attendance')editAttendance();
@@ -697,8 +785,8 @@
     }
     else if(a==='load-session'){
       const s=state.sessions.find(x=>x.id===id);if(!s)return;
-      if(s.needsReview || !sameIds(s.present,certifiedIds(s.date))){ui.date=s.date;ui.current=null;ui.editingAttendance=false;ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';renderTraining();toast('Presenze cambiate: rigenera le squadre');return;}
-      ui.date=s.date;ui.editingAttendance=false;ui.current=JSON.parse(JSON.stringify(s));ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';renderTraining();setTimeout(()=>el('generated')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
+      if(s.needsReview || !sameIds(s.present,certifiedIds(s.date))){ui.date=s.date;ui.current=null;ui.editingAttendance=false;ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;renderTraining();toast('Presenze cambiate: rigenera le squadre');return;}
+      ui.date=s.date;ui.editingAttendance=false;ui.current=JSON.parse(JSON.stringify(s));ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;renderTraining();setTimeout(()=>el('generated')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
     }
     else if(a==='select-match'){if(id!==ui.selectedMatchId && !closeMatchEditor())return;ui.selectedMatchId=id;ui.eventType='gol';ui.editingEventId=null;renderMatches();}
     else if(a==='edit-match')beginMatchEdit(id);

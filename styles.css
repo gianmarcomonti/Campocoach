@@ -149,3 +149,28 @@
 .stat-sort-hint strong{color:var(--lime)}
 .stat-table tbody tr:first-child td{background:#1d3730}
 @media(max-width:430px){.stat-sort{padding:9px 7px;font-size:10px;min-height:45px}}
+
+/* CampoCoach 4.6: statistiche personali e sponde allenamento */
+.player-stat-link{background:transparent;border:0;padding:8px 3px;color:#eaffde;font:inherit;font-weight:750;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:#7aaa57;text-underline-offset:3px;min-height:42px}
+.player-stat-link span{color:var(--lime);margin-left:4px}.player-stat-link:hover{color:var(--lime)}
+.profile-modal .modal-panel{max-width:min(96vw,630px);max-height:min(90dvh,860px);overflow-y:auto}
+.profile-sheet{display:flex;flex-direction:column;gap:16px;padding-bottom:8px}
+.profile-sheet h4{margin:8px 0 0;color:#e5ffd0;font-size:15px}
+.profile-hero{display:flex;align-items:center;gap:16px;padding:18px;border:1px solid #547655;background:linear-gradient(135deg,#244c3a,#132b27);border-radius:16px}
+.profile-hero>div{display:flex;flex-direction:column;gap:5px}.profile-hero strong{font-size:20px}.profile-hero small{color:#b4cebe}
+.profile-number{width:62px;height:68px;display:grid;place-items:center;border-radius:14px;background:#caef70;color:#173522;font-size:32px;font-weight:900;flex-shrink:0}
+.profile-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.profile-stats>div{display:flex;flex-direction:column;gap:4px;padding:12px 8px;text-align:center;border-radius:11px;background:#1b3830;border:1px solid #325849}
+.profile-stats strong{font-size:24px;color:var(--lime)}.profile-stats span{font-size:11px;color:#b1cabe}
+.profile-performance{padding:13px;border:1px solid #31584b;border-radius:12px;background:#172e29;display:flex;flex-direction:column;gap:10px}
+.profile-performance>div:first-child{display:flex;justify-content:space-between;flex-wrap:wrap;gap:5px}
+.profile-performance small{color:#a9c4b7;font-size:11px}.profile-actions{display:flex;flex-wrap:wrap;gap:7px}
+.profile-action{display:inline-flex;padding:6px 9px;border-radius:8px;background:#264a3d;color:#e4ffdb;font-size:12px;font-weight:700}
+.profile-training-days{font-size:12px;color:#c1dbcd;line-height:1.7}
+.sponde-preview{margin:18px 0;border:1px solid #b6d761;border-radius:14px;padding:15px;background:linear-gradient(135deg,#293e2c,#152d29)}
+.sponde-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#e1ff9d;font-size:13px;font-weight:850;margin-bottom:12px}
+.sponde-players{display:flex;flex-wrap:wrap;gap:9px}.sponda-chip{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:10px;background:#34513a;border:1px solid #668e55}
+.sponda-number{width:35px;height:35px;display:grid;place-items:center;background:#e3fda8;color:#254327;border-radius:10px;font-size:16px;font-weight:900}
+.sponda-chip div{display:flex;flex-direction:column;gap:3px}.sponda-chip strong{font-size:13px}.sponda-chip small{font-size:10px;color:#ccdec5}
+.clean-auto{margin-top:12px;border:1px solid #7eaf87;background:#1e4437;border-radius:11px;padding:12px;color:#e4f5dc;font-size:13px}
+@media(max-width:450px){.profile-modal .modal-panel{max-height:88dvh}.profile-stats strong{font-size:20px}.profile-stats span{font-size:10px}.profile-hero strong{font-size:17px}}

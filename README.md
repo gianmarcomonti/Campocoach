@@ -1,4 +1,4 @@
-# CampoCoach 4.5 — App per GitHub Pages
+# CampoCoach 4.6 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -7,12 +7,12 @@ Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze cert
 ## Pubblicazione su GitHub (senza usare programmi)
 
 1. Scarica e **estrai** lo ZIP che contiene questi file. Non caricare soltanto lo ZIP su GitHub.
-2. Su [github.com/new](https://github.com/new), crea un repository, ad esempio `CampoCoach` (per GitHub Free scegli **Public**).
+2. Se hai già pubblicato la precedente versione, **riutilizza il repository esistente `Campocoach`**: non crearne uno nuovo. In caso contrario, crea un repository pubblico su GitHub.
 3. Apri il repository e seleziona **Add file > Upload files**.
 4. Trascina **i file estratti**, fra cui `index.html`, `app.js`, `tactics.js`, `styles.css`, `manifest.webmanifest`, `sw.js`, le due icone, `README.md` e `.nojekyll`. Devono essere nella **radice del repository**, non dentro una sottocartella.
 5. Premi **Commit changes**.
 6. Apri **Settings > Pages**, scegli **Deploy from a branch** come Source, poi seleziona `main`, cartella `/(root)`, e premi **Save**.
-7. Quando GitHub Pages completa la pubblicazione, apri **Visit site** nella stessa pagina. Se il repository si chiama `CampoCoach`, l'indirizzo in genere e `https://TUO-USERNAME.github.io/CampoCoach/`.
+7. Quando GitHub Pages completa la pubblicazione, apri **Visit site**. Il link già configurato è `https://gianmarcomonti.github.io/Campocoach/` e rimane invariato con questo aggiornamento.
 
 Per le istruzioni ufficiali: https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
 
@@ -53,3 +53,12 @@ README.md
 ## Nota
 
 Non e un'app nativa pubblicata su App Store o Google Play, ma un sito installabile sul telefono tramite GitHub Pages. L'app non richiede account e non sincronizza dati tra dispositivi.
+
+
+## Novità 4.6 — Sponde, Jolly Dondo e statistiche singole
+
+- Portiere titolare: una porta inviolata viene conteggiata automaticamente quando i **gol subiti sono 0**. Un risultato non inserito non conta. I precedenti eventi manuali senza risultato sono conservati per compatibilità, senza contare due volte.
+- Nella tabella **Statistiche**, tocca il nome di un giocatore per visualizzare la sua scheda con gol, assist, autogol e porte inviolate, divisi per partita e avversario.
+- Nei **possessi palla** scegli il numero di **sponde**. Le sponde e i rispettivi nomi appaiono separati dalle squadre generate; la configurazione viene salvata nello storico.
+- Nella **Rosa**, il flag **Questo giocatore è il Jolly Dondo** consente di creare un giocatore speciale con ruolo principale/secondario, numero e stelle. In **Allenamenti → Crea squadre** puoi attivare **Jolly Dondo** e usarlo come jolly/sponda oppure come giocatore aggiuntivo per pareggiare le squadre. Dondo non risulta nelle presenze certificate, nelle partite o nelle statistiche ufficiali.
+- Carica tutti i file del pacchetto nella radice del repository GitHub (`main / (root)`), non lo ZIP. Se usi il medesimo URL GitHub Pages, i dati locali restano disponibili. Esporta sempre un backup prima di aggiornare.
