@@ -1,4 +1,4 @@
-# CampoCoach 4.7 — App per GitHub Pages
+# CampoCoach 4.9 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -66,9 +66,26 @@ Non e un'app nativa pubblicata su App Store o Google Play, ma un sito installabi
 
 ## Novità CampoCoach 4.7 — Convocazioni e Prima squadra
 
-- Nella **Rosa** puoi indicare un giocatore come **Prima squadra**. È una semplice etichetta: non cambia presenze certificate, statistiche, stelle o punteggio di forma.
+- Nella **Rosa** puoi indicare un giocatore come **Prima squadra**. Non modifica presenze certificate, statistiche o stelle; dalla 4.9 esclude la penalizzazione sulle presenze settimanali per la formazione.
 - Nella **Partita** seleziona i **convocati**, eventualmente usando i pulsanti “Convoca tutti” e “Solo Prima squadra”, poi premi **Conferma convocati**.
 - **Genera la migliore formazione** utilizza soltanto i convocati confermati. La compatibilità con il ruolo viene prima, poi valore in stelle, presenze settimanali e rendimento recente.
 - I convocati non scelti titolari passano automaticamente in **panchina**. I non convocati restano fuori.
 - Le partite delle vecchie versioni conservano titolari e panchinari esistenti come convocati iniziali.
 - Se cambi i convocati, devi confermarli nuovamente prima di rigenerare. La modifica viene salvata soltanto con **Salva modifiche**.
+
+## Novita CampoCoach 4.8 — Modulo e frequenza allenamenti
+
+- Nella sezione Partite ora si procede **Convocati > Scegli il modulo > Genera formazione > Salva modifiche**. La scelta del modulo avviene dopo aver confermato i convocati.
+- Rimossa la descrizione dettagliata della scelta intelligente e dei pesi di valutazione: resta il pulsante **Genera formazione**.
+- Nel riquadro Partita le presenze agli allenamenti dei giocatori contrassegnati **Prima squadra** non vengono mostrate, neppure nei convocati, nel riepilogo dei titolari o in panchina. Le statistiche registrate non vengono cancellate.
+- Con almeno 2 allenamenti certificati nella settimana, un convocato con **0 presenze** viene sfavorito decisamente rispetto a un altro dello **stesso ruolo principale o secondario** che si sia allenato. Se mancano alternative per quel posto o tutti sono a 0, il giocatore resta selezionabile. Il ruolo e il modulo vengono rispettati; il mister puo intervenire manualmente sulla formazione.
+- I vecchi dati sono compatibili. Resta invariato l'indirizzo dell'app; esporta un backup JSON prima di aggiornare.
+
+
+## Novita CampoCoach 4.9 — Prima squadra esente dalla regola 0/2
+
+- **Prima squadra**: i giocatori con il relativo flag **non sono soggetti alla penalizzazione 0/2** nella formazione automatica.
+- Le presenze settimanali non influenzano neppure il loro **indice di selezione**: i punti settimanali vengono trattati come neutri (pari a quelli di una frequenza piena), se ci sono allenamenti certificati nella settimana. Questo **non modifica le presenze registrate**, ne' le statistiche personali; il dato reale rimane nascosto nella schermata Partita come gia' previsto.
+- Per gli altri giocatori resta la regola 0/2: se ci sono almeno due allenamenti certificati, chi e' stato assente a entrambi viene sfavorito quando esiste un'alternativa allenata per quel ruolo.
+- La scelta continua a dipendere dal **modulo selezionato, ruolo principale/secondario, stelle e rendimento recente**. Non cambia il flusso Convocati -> Scegli modulo -> Genera formazione.
+- Nessuna modifica necessaria ai dati esistenti. Esegui comunque un backup JSON prima di pubblicare una versione nuova.

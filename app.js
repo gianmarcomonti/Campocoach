@@ -9,7 +9,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const today = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
   const uid = () => (crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
-  const defaultData = () => ({ version:7, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
+  const defaultData = () => ({ version:9, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
   const fmtDate = iso => {
     if (!iso) return '—';
     const d = new Date(`${iso}T12:00:00`);
@@ -54,7 +54,7 @@
       return {...m,lineup,calledUpIds,callupsConfirmed:confirmed,
         benchIds:calledUpIds.filter(id=>!lineup.includes(id))};
     });
-    return {version:7,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true,isFirstTeam:p.isFirstTeam===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches};
+    return {version:9,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true,isFirstTeam:p.isFirstTeam===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches};
   }
   function load(){
     try {
@@ -232,7 +232,7 @@
         <div class="form-group"><label for="pPrimary">Ruolo principale (priorità massima)</label><select id="pPrimary" name="primaryPosition" required>${optionsPositions(editing?.primaryPosition||'MEZ')}</select></div>
         <div class="form-group"><label for="pSecondary">Ruolo secondario (facoltativo)</label><select id="pSecondary" name="secondaryPosition">${optionsPositions(editing?.secondaryPosition||'',true)}</select><div class="form-hint">Esempio: un terzino destro che può fare il centrale. Viene usato da centrale soltanto dopo i centrali di ruolo, ove possibile.</div></div>
         <div class="form-group"><label for="pRating">Valutazione tecnica (da 1 a 5, anche mezze stelle)</label><select id="pRating" name="rating">${Array.from({length:9},(_,i)=>1+i*0.5).map(v=>`<option value="${v}" ${v===ratingValue(editing?.rating??3)?'selected':''}>${ratingLabel(v)} stelle su 5</option>`).join('')}</select><div id="ratingPreview" class="rating-preview" aria-live="polite">${ratingStars(editing?.rating??3)}</div><div class="form-hint">Puoi scegliere anche 2,5, 3,5 o 4,5 stelle. Il valore serve per bilanciare il livello delle squadre, senza scavalcare il ruolo principale.</div></div>
-        <label class="toggle-control" for="pIsFirstTeam"><input type="checkbox" id="pIsFirstTeam" ${editing?.isFirstTeam?'checked':''}><span><strong>Giocatore della prima squadra</strong><small>Etichetta organizzativa: non cambia le presenze agli allenamenti, le statistiche né aggiunge bonus alla scelta dei titolari. Nelle convocazioni puoi selezionare rapidamente i giocatori contrassegnati.</small></span></label>
+        <label class="toggle-control" for="pIsFirstTeam"><input type="checkbox" id="pIsFirstTeam" ${editing?.isFirstTeam?'checked':''}><span><strong>Giocatore della prima squadra</strong><small>Le presenze reali restano nelle statistiche, ma non penalizzano la selezione per la partita: la regola 0/2 non si applica ai giocatori della Prima squadra. Puoi selezionarli rapidamente nelle convocazioni.</small></span></label>
         <label class="toggle-control" for="pIsDondo"><input type="checkbox" id="pIsDondo" ${editing?.isDondo?'checked':''}><span><strong>Questo giocatore è il Jolly Dondo</strong><small>Lo userai solo per completare le partitelle o come sponda nei possessi. Non entra in presenze, partite e statistiche ufficiali.</small></span></label>
         <div class="button-row"><button class="btn primary" type="submit">${editing?'Salva modifiche':'Aggiungi in rosa'}</button>${editing?'<button type="button" class="btn secondary" data-action="cancel-edit">Annulla</button>':''}</div>
       </form></div>
@@ -365,13 +365,19 @@
   const certifiedDatesNewest=()=>Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
   const metricsForMatch=m=>TACTICS.matchFormMetrics(m.date,state.players,state.attendanceCertified,state.matches.filter(x=>x.id!==m.id));
   // The coach must confirm the call-ups before generating an official line-up.
-  // The first-team label is deliberately NOT used as a scoring bonus.
+  // The first-team label exempts players from attendance-based penalties.
   function autoLineup(m){
     if(!m.callupsConfirmed || !(m.calledUpIds||[]).length)return Array(11).fill(null);
     const metrics=metricsForMatch(m);
     const players=m.calledUpIds.map(person).filter(p=>p&&!p.isDondo);
     const scores=Object.fromEntries(Object.entries(metrics.byId).map(([id,value])=>[id,value.formScore]));
-    return TACTICS.makeMatchLineup(m.formation,players,scores);
+    // With at least two certified training sessions in the week, prefer a
+    // player who attended to an equally suited player with 0 attendances.
+    // No blanket exclusion: allow 0/2 when no comparable role cover exists.
+    return TACTICS.makeMatchLineup(m.formation,players,scores,{
+      weekTrainings:metrics.weekDates.length,
+      byId:metrics.byId
+    });
   }
   function updateCallups(m,proposed){
     const next=[...new Set(proposed.filter(id=>person(id)&&!person(id).isDondo))];
@@ -394,7 +400,7 @@
   }
   function formSummary(p,m,metrics=metricsForMatch(m)){
     const v=metrics.byId[p.id]||{trainings:0,trainingsTotal:0,goals:0,assists:0,formScore:0};
-    return `${v.trainings}/${v.trainingsTotal} allenamenti · ⚽ ${v.goals} · 🎯 ${v.assists} · Forma ${Math.round(v.formScore)}/100`;
+    return `${p.isFirstTeam?'Prima squadra · ':`${v.trainings}/${v.trainingsTotal} allenamenti · `}⚽ ${v.goals} · 🎯 ${v.assists} · Forma ${Math.round(v.formScore)}/100`;
   }
   function cleanBench(m){
     m.calledUpIds=[...new Set((m.calledUpIds||[]).filter(id=>person(id)&&!person(id).isDondo))];
@@ -426,17 +432,16 @@
       `<div class="match-view-banner"><div><strong>Partita salvata</strong><small>Puoi modificare convocati e formazione quando vuoi.</small></div><button type="button" class="btn primary" data-action="edit-match" data-id="${esc(m.id)}">✎ Modifica partita</button></div>`;
     const details=editing?`<div class="form-group" style="margin-bottom:12px"><label for="matchOpponentEdit">Avversario</label><input id="matchOpponentEdit" maxlength="65" required value="${esc(m.opponent)}" placeholder="Nome avversario"></div>
       <div class="two-col"><div><label for="matchDateEdit">Data della partita</label><input type="date" id="matchDateEdit" value="${esc(m.date)}" required></div><div><label for="matchVenueEdit">Campo</label><select id="matchVenueEdit"><option value="Casa" ${m.venue==='Casa'?'selected':''}>Casa</option><option value="Trasferta" ${m.venue==='Trasferta'?'selected':''}>Trasferta</option></select></div></div>
-      <div class="form-group" style="margin:12px 0"><label for="matchFormation">Modulo</label><select id="matchFormation">${FORMATIONS.map(f=>`<option value="${f}" ${f===m.formation?'selected':''}>${f}</option>`).join('')}</select></div>`:
+      `:
       `<div class="match-info-strip"><span>📅 ${fmtDate(m.date)} · ${weekday(m.date)}</span><span>📍 ${esc(m.venue)}</span><span>⚽ ${esc(m.formation)}</span></div>`;
     const callupsBlock=editing?`<div class="match-step"><span class="match-step-num">1</span><div><strong>Convocati della partita</strong><small>Seleziona prima i giocatori disponibili, poi conferma. Solo loro potranno diventare titolari o riserve.</small></div><span class="tag">${selected.length} convocati</span></div>
       <div class="button-row callups-actions"><button type="button" class="btn secondary small" data-action="callup-all">Convoca tutti</button><button type="button" class="btn secondary small" data-action="callup-first">Solo Prima squadra</button><button type="button" class="btn ghost small" data-action="callup-none">Svuota</button></div>
       <div class="callups-chooser">${callups.length?callups.map(p=>`<label class="callup-select ${m.calledUpIds.includes(p.id)?'is-selected':''}"><input type="checkbox" data-callup-id="${esc(p.id)}" ${m.calledUpIds.includes(p.id)?'checked':''}><span class="callup-details"><strong>#${p.number} ${esc(p.name)} ${p.isFirstTeam?'<span class="tag">PRIMA SQUADRA</span>':''}</strong><small>${esc(positionLine(p))} · ${ratingLabel(p.rating)} ★ · ${esc(formSummary(p,m,metrics))}</small></span></label>`).join(''):'<p class="hint">Inserisci prima i giocatori nella Rosa.</p>'}</div>
-      <div class="callups-confirm"><div><strong>${m.callupsConfirmed?'✓ Convocati confermati':'Convocati da confermare'}</strong><small>${selected.length} selezionati · ${selected.length>=11?'numero sufficiente per 11 titolari':'meno di 11 giocatori, la formazione potrà essere incompleta'}. Il flag Prima squadra non modifica stelle, presenze o indice di forma.</small></div><button class="btn ${m.callupsConfirmed?'secondary':'primary'}" data-action="confirm-callups" ${selected.length?'':'disabled'}>${m.callupsConfirmed?'✓ Confermati':'Conferma convocati →'}</button></div>`:
+      <div class="callups-confirm"><div><strong>${m.callupsConfirmed?'✓ Convocati confermati':'Convocati da confermare'}</strong><small>${selected.length} selezionati · ${selected.length>=11?'numero sufficiente per 11 titolari':'meno di 11 giocatori, la formazione potrà essere incompleta'}. Per la Prima squadra le presenze non penalizzano la scelta dei titolari (regola 0/2 esclusa).</small></div><button class="btn ${m.callupsConfirmed?'secondary':'primary'}" data-action="confirm-callups" ${selected.length?'':'disabled'}>${m.callupsConfirmed?'✓ Confermati':'Conferma convocati →'}</button></div>`:
       `<div class="match-step"><span class="match-step-num">1</span><div><strong>Convocati</strong><small>${selected.length} selezionati per questa gara</small></div><span class="tag">${m.callupsConfirmed?'Confermati':'Da confermare'}</span></div><div class="callups-summary">${selected.length?selected.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)}${p.isFirstTeam?' · Prima squadra':''}</span>`).join(''):'Nessun convocato'}</div>`;
-    const formSettings=editing?`<div class="match-step"><span class="match-step-num">2</span><div><strong>Genera la migliore formazione</strong><small>La generazione considera soltanto i convocati confermati.</small></div></div>
-      <div class="formation-settings"><strong>Scelta intelligente per ruolo, valore e forma</strong><p class="hint">Priorità al ruolo principale, poi a quello secondario. A parità di compatibilità si confrontano stelle tecniche, allenamenti certificati, gol e assist recenti. Il flag Prima squadra non dà bonus.</p><div class="week-panel"><div><strong>Settimana ${fmtDate(metrics.weekStart)} – ${fmtDate(m.date)}</strong><span>${metrics.weekDates.length} allenamenti certificati prima della gara</span></div><small>${weekDetail}</small></div><div class="form-points"><span>Livello tecnico <b>20 pt</b></span><span>Presenze settimanali <b>35 pt</b></span><span>Gol / assist recenti <b>45 pt</b></span></div><p class="form-hint">Rendimento sulle ultime 5 partite registrate nei 45 giorni precedenti. Le stelle restano quelle della Rosa.</p><div class="button-row"><button class="btn small ${m.formation.startsWith('4')?'primary':'secondary'}" data-action="set-defense" data-defense="4">Difesa a 4</button><button class="btn small ${m.formation.startsWith('3')?'primary':'secondary'}" data-action="set-defense" data-defense="3">Difesa a 3</button></div></div>
-      ${!m.callupsConfirmed?'<p class="warning-note">Conferma i convocati nel passaggio 1 prima di generare o modificare la formazione.</p>':''}
-      <div class="button-row lineup-tools"><button class="btn primary small" data-action="auto-lineup" ${!m.callupsConfirmed||!m.calledUpIds.length?'disabled':''}>⚡ Genera la migliore formazione</button><button class="btn secondary small" data-action="clear-lineup" ${!m.callupsConfirmed?'disabled':''}>Cancella titolari</button></div>`:'';
+    const formSettings=editing?`<div class="match-step"><span class="match-step-num">2</span><div><strong>Scegli il modulo</strong></div></div>
+      <div class="form-group" style="margin:12px 0"><label for="matchFormation">Modulo della partita</label><select id="matchFormation" ${!m.callupsConfirmed?'disabled':''}>${FORMATIONS.map(f=>`<option value="${f}" ${f===m.formation?'selected':''}>${f}</option>`).join('')}</select></div>
+      <div class="button-row lineup-tools"><button class="btn primary small" data-action="auto-lineup" ${!m.callupsConfirmed||!m.calledUpIds.length?'disabled':''}>⚡ Genera formazione</button></div>`:'';
     const results=editing?`<div class="two-col"><div><label for="gf">Gol fatti</label><input id="gf" data-result="gf" type="number" min="0" max="99" value="${m.gf??''}" placeholder="–"></div><div><label for="ga">Gol subiti</label><input id="ga" data-result="ga" type="number" min="0" max="99" value="${m.ga??''}" placeholder="–"></div></div><div class="form-hint">Il risultato viene salvato insieme alla partita quando premi «Salva modifiche».</div>`:
       `<div class="match-result-readonly"><strong>${score(m)}</strong><small>Risultato registrato</small></div>`;
     const eventForm=editing?`<form id="eventForm" class="stack"><div class="two-col"><div><label for="eventType">Tipo evento</label><select id="eventType">${Object.entries(EVENTS).filter(([k])=>k!=='clean').map(([k,v])=>`<option value="${k}" ${ui.eventType===k?'selected':''}>${v.title}</option>`).join('')}</select></div><div><label for="eventMinute">Minuto (opzionale)</label><input id="eventMinute" type="number" min="0" max="130" placeholder="Es. 64" value="${currentEvent?.minute??''}"></div></div><div><label for="eventPlayer">Giocatore</label><select id="eventPlayer" required>${pOptions(currentEvent?.playerId||'',p=>m.calledUpIds.includes(p.id))}</select></div>${ui.eventType==='gol'?`<div><label for="eventAssist">Assist di (facoltativo)</label><select id="eventAssist">${pOptions(currentEvent?.assistId||'',p=>m.calledUpIds.includes(p.id))}</select><div class="form-hint">Se inserisci l'assist qui, non aggiungerlo una seconda volta come evento separato.</div></div>`:''}<div class="button-row"><button type="submit" class="btn primary" ${m.calledUpIds.length===0?'disabled':''}>${currentEvent?'✓ Aggiorna evento':'+ Registra evento'}</button>${currentEvent?'<button type="button" class="btn secondary" data-action="cancel-event-edit">Annulla evento</button>':''}</div></form>`:'';
@@ -446,10 +451,10 @@
       ${formSettings}
       <div class="match-step" style="margin-top:20px"><span class="match-step-num">3</span><div><strong>Titolari e panchina</strong><small>${editing?'Tocca le maglie per modificare i giocatori tra i convocati':'Formazione salvata'}</small></div></div>
       ${renderPitch(m,editing&&m.callupsConfirmed)}
-      <div class="lineup-review"><div class="card-title"><h3>Forma degli undici</h3><span class="tag">Presenze della settimana</span></div><div class="lineup-review-grid">${formationSlots(m.formation).map((slot,index)=>{const p=person(m.lineup?.[index]);return `<div class="lineup-review-item"><small>${esc(slot.label)}</small><strong>${p?esc(p.name):'Posto libero'}</strong><span>${p?esc(formSummary(p,m,metrics)):'—'}</span></div>`;}).join('')}</div></div>
+      <div class="lineup-review"><div class="card-title"><h3>Riepilogo titolari</h3><span class="tag">Valutazione per la partita</span></div><div class="lineup-review-grid">${formationSlots(m.formation).map((slot,index)=>{const p=person(m.lineup?.[index]);return `<div class="lineup-review-item"><small>${esc(slot.label)}</small><strong>${p?esc(p.name):'Posto libero'}</strong><span>${p?esc(formSummary(p,m,metrics)):'—'}</span></div>`;}).join('')}</div></div>
       <div class="card-title" style="margin-top:20px"><h3>Panchina</h3><span class="tag">${selectedBench.length} riserve</span></div>
       <p class="hint">I convocati che non sono tra gli undici titolari vengono inseriti automaticamente in panchina. Puoi correggere la formazione toccando una maglia.</p>
-      <div class="bench-summary"><strong>Riserve convocate</strong><div class="bench-grid">${selectedBench.length?selectedBench.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)} · ${metrics.byId[p.id]?.trainings||0}/${metrics.weekDates.length} allen.</span>`).join(''):'<span class="hint">Nessuna riserva selezionata</span>'}</div></div>
+      <div class="bench-summary"><strong>Riserve convocate</strong><div class="bench-grid">${selectedBench.length?selectedBench.map(p=>`<span class="bench-chip">#${p.number} ${esc(p.name)} · ${p.isFirstTeam?'Prima squadra':`${metrics.byId[p.id]?.trainings||0}/${metrics.weekDates.length} allen.`}</span>`).join(''):'<span class="hint">Nessuna riserva selezionata</span>'}</div></div>
       <hr class="section-divider"><div class="card-title"><h3>Risultato finale</h3><span class="tag">Facoltativo</span></div>${results}</div>
       <div class="card"><div class="card-title"><h2>Eventi partita</h2><span class="tag">${fromMatch.length} eventi</span></div><p class="hint">🧤 Porta inviolata automatica: se il portiere è titolare e i gol subiti sono 0, viene assegnata nelle statistiche senza inserire eventi manuali.</p>${m.ga===0&&m.lineup?.[0]&&person(m.lineup[0])?.primaryPosition==='POR'?`<div class="clean-auto">🧤 Porta inviolata a <strong>${esc(display(m.lineup[0]))}</strong> contro ${esc(m.opponent)} · ${fmtDate(m.date)}</div>`:''}${eventForm}
       ${fromMatch.length?`<hr class="section-divider"><div class="event-list">${fromMatch.map(e=>`<div class="event-item"><div class="event-emoji">${EVENTS[e.type]?.symbol||'•'}</div><div class="event-main"><strong>${EVENTS[e.type]?.title||e.type} · ${esc(display(e.playerId))}</strong><small>${e.minute!==null&&e.minute!==undefined?`${e.minute}' · `:''}${e.assistId?`Assist: ${esc(display(e.assistId))}`:'Evento registrato'}</small></div>${editing?`<div class="event-actions"><button class="btn small secondary" data-action="edit-event" data-id="${esc(e.id)}">Modifica</button><button class="icon-btn" aria-label="Rimuovi evento" data-action="delete-event" data-id="${esc(e.id)}">✕</button></div>`:''}</div>`).join('')}</div>`:'<div class="empty" style="margin-top:15px">Nessun gol, assist o altro evento registrato.</div>'}
@@ -462,7 +467,7 @@
     const current=matchById();
     el('matches').innerHTML=`
       ${pageHead('03 / MATCH DAY','Partite & formazioni','Crea la partita, scegli e conferma i convocati, poi genera i migliori titolari e la panchina.')}
-      <div class="match-grid"><div><div class="card"><div class="card-title"><h2>Nuova partita</h2><span class="tag">Calendario libero</span></div><form class="stack" id="matchForm"><div class="form-group"><label for="matchOpponent">Avversario</label><input id="matchOpponent" required maxlength="65" placeholder="Es. Atletico Centro"></div><div class="two-col"><div><label for="matchDate">Data</label><input id="matchDate" type="date" required value="${today()}"></div><div><label for="matchVenue">Campo</label><select id="matchVenue"><option value="Casa">Casa</option><option value="Trasferta">Trasferta</option></select></div></div><div><label for="matchNewFormation">Modulo iniziale</label><select id="matchNewFormation">${FORMATIONS.map(f=>`<option>${f}</option>`).join('')}</select></div><button type="submit" class="btn primary full">+ Crea partita</button></form></div>
+      <div class="match-grid"><div><div class="card"><div class="card-title"><h2>Nuova partita</h2><span class="tag">Calendario libero</span></div><form class="stack" id="matchForm"><div class="form-group"><label for="matchOpponent">Avversario</label><input id="matchOpponent" required maxlength="65" placeholder="Es. Atletico Centro"></div><div class="two-col"><div><label for="matchDate">Data</label><input id="matchDate" type="date" required value="${today()}"></div><div><label for="matchVenue">Campo</label><select id="matchVenue"><option value="Casa">Casa</option><option value="Trasferta">Trasferta</option></select></div></div><button type="submit" class="btn primary full">+ Crea partita</button></form></div>
       <div class="card"><div class="card-title"><h2>Calendario gare</h2><span class="tag">${sorted.length} partite</span></div>${sorted.length?`<div class="match-list">${sorted.map(m=>`<div class="match-entry"><button type="button" class="match-item ${m.id===current?.id?'active':''}" data-action="select-match" data-id="${esc(m.id)}"><b>${score(m)}</b><strong>${esc(m.opponent)}</strong><small>${fmtDate(m.date)} · ${esc(m.venue)} · ${esc(m.formation)}</small></button><div class="match-entry-actions"><button type="button" class="btn secondary small" data-action="edit-match" data-id="${esc(m.id)}">Modifica</button><button type="button" class="btn danger small match-delete" data-action="delete-match" data-id="${esc(m.id)}" aria-label="Elimina partita contro ${esc(m.opponent)} del ${fmtDate(m.date)}">Elimina</button></div></div>`).join('')}</div>`:'<div class="empty"><span class="empty-icon">🏟️</span>Non hai ancora inserito partite.</div>'}</div></div>
       <div>${current?renderMatchDetail(current):`<div class="card"><div class="field-banner"><span>IL CAMPO TI ASPETTA</span></div><p class="hint" style="margin:17px 0 0">Crea una partita per iniziare a comporre la tua formazione. Tocca le maglie sul campo per cambiare giocatore.</p></div>`}</div></div>`;
   }
@@ -561,7 +566,7 @@
   }
   function createMatch(){
     if(!closeMatchEditor())return;
-    const opponent=el('matchOpponent')?.value.trim(),date=el('matchDate')?.value,venue=el('matchVenue')?.value,formation=el('matchNewFormation')?.value;
+    const opponent=el('matchOpponent')?.value.trim(),date=el('matchDate')?.value,venue=el('matchVenue')?.value,formation='4-3-3';
     if(!opponent||!date||!FORMATIONS.includes(formation)){toast('Inserisci avversario e data');return;}
     const m={id:uid(),opponent,date,venue,formation,lineup:Array(11).fill(null),calledUpIds:[],callupsConfirmed:false,benchIds:[],events:[],gf:null,ga:null};
     state.matches.unshift(m);ui.selectedMatchId=m.id;save();beginMatchEdit(m.id);toast('Partita creata: seleziona e conferma prima i convocati');
@@ -847,7 +852,7 @@
       const m=matchById();if(!editingMatch()||!m)return;
       if(!m.calledUpIds.length){toast('Seleziona prima almeno un convocato');return;}
       m.callupsConfirmed=true;cleanBench(m);saveMatchChange();renderMatches();
-      toast(m.calledUpIds.length<11?'Convocati confermati: meno di 11, formazione parziale':'Convocati confermati: ora genera la formazione');
+      toast(m.calledUpIds.length<11?'Convocati confermati: meno di 11, formazione parziale':'Convocati confermati: scegli modulo e genera formazione');
     }
     else if(a==='set-defense'){
       const m=matchById();if(!editingMatch()||!m)return;
@@ -855,7 +860,7 @@
       if(m.formation===desired){toast('Assetto gia selezionato');return;}
       if(m.lineup.some(Boolean)&&!confirm('Cambiare difesa e svuotare i titolari? Potrai rigenerarli con il pulsante apposito.'))return;
       m.formation=desired;m.lineup=Array(11).fill(null);cleanBench(m);
-      saveMatchChange();renderMatches();toast(`Difesa a ${b.dataset.defense} selezionata: premi Genera la migliore formazione`);
+      saveMatchChange();renderMatches();toast('Modulo aggiornato: premi Genera formazione');
     }
     else if(a==='auto-lineup'){
       const m=matchById();if(!editingMatch()||!m)return;

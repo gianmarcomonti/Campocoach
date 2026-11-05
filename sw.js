@@ -1,4 +1,4 @@
-const CACHE = 'campocoach-v4.7.0';
+const CACHE = 'campocoach-v4.9.0';
 const ASSETS = ['./','./index.html','./styles.css','./app.js','./tactics.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));

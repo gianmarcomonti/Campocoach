@@ -139,8 +139,24 @@
       const quality=(Number(p.rating)||3)*2.8;
       const pastRest=Math.min(Number(restCounts[p.id])||0,12)*12;
       const tie=((i*23+j*11+i*j*7)%13)*.005;
+      // Prioritise training attendance over recent goals and higher stars
+      // ONLY if there are >=2 certified sessions and another player can
+      // cover this same position as a primary/secondary role. A 0/2 player
+      // remains eligible when the position lacks trained alternatives.
+      // Players labelled Prima squadra are exempt from this 0/2 penalty.
+      let noTrainingPenalty=0;
+      if(matchScore!==undefined && !p.isFirstTeam && options.weekTrainings>=2 && options.byId?.[p.id]?.trainings===0){
+        const pos=slot.key||slot.position;
+        const main=pos==='BRS'||pos==='BRD'?'DC':pos;
+        const similarSlots=slots.filter(s=>{const k=s.key||s.position; return (k==='BRS'||k==='BRD'?'DC':k)===main;}).length;
+        const trainedAlternatives=normalized.filter(q=>q.id!==p.id && (options.byId?.[q.id]?.trainings||0)>0 &&
+          (q.primaryPosition===main||q.secondaryPosition===main)).length;
+        if((p.primaryPosition===main||p.secondaryPosition===main) && trainedAlternatives>=similarSlots){
+          noTrainingPenalty=1000;
+        }
+      }
       return matchScore!==undefined
-        ? suitability*3-Math.max(0,Math.min(100,Number(matchScore)||0))+tie
+        ? suitability*3-Math.max(0,Math.min(100,Number(matchScore)||0))+noTrainingPenalty+tie
         : suitability-quality-pastRest+tie;
     };
     const u=Array(m+1).fill(0),v=Array(n+1).fill(0),p=Array(n+1).fill(0),way=Array(n+1).fill(0);
@@ -239,7 +255,12 @@
       const goals=recentMatches.reduce((count,m)=>count+(m.events||[]).filter(e=>e.type==='gol'&&e.playerId===p.id).length,0);
       const assists=recentMatches.reduce((count,m)=>count+(m.events||[]).filter(e=>e.type==='assist'&&e.playerId===p.id || e.type==='gol'&&e.assistId===p.id).length,0);
       const technical=Math.max(1,Math.min(5,Number(p.rating)||3))*4;
-      const attendance=weekDates.length?35*trainings/weekDates.length:0;
+      // Prima squadra: actual attendance stays recorded, but the weekly
+      // attendance factor must not affect selection. Using the neutral full
+      // 35-point attendance component keeps players comparable to a player
+      // with 100% attendance, without changing the stored 0/2, 1/2 etc.
+      // If no training is scheduled, everyone receives 0 attendance points.
+      const attendance=weekDates.length?(p.isFirstTeam?35:35*trainings/weekDates.length):0;
       const recent=Math.min(45,goals*12+assists*8);
       byId[p.id]={trainings,trainingsTotal:weekDates.length,goals,assists,
         technicalPoints:Math.round(technical*10)/10,
@@ -249,9 +270,11 @@
     }
     return {weekStart:monday,weekEnd:prevDay,weekDates,recentMatches:recentMatches.map(m=>m.date),byId};
   }
-  function makeMatchLineup(formation,players,matchScores={}){
+  function makeMatchLineup(formation,players,matchScores={},attendanceInfo={}){
     const slots=matchSlots(formation);
-    const results=minCostMatching(slots.map(s=>({key:s.position})),players,{}, {matchScores});
+    const results=minCostMatching(slots.map(s=>({key:s.position})),players,{}, {
+      matchScores,weekTrainings:attendanceInfo.weekTrainings||0,byId:attendanceInfo.byId||{}
+    });
     return results.map(p=>p?.id||null);
   }
   root.CampoCoachTactics={POSITIONS,GROUPS,DEFAULTS,FORMATION_LINES,TRAINING_FORMATIONS,trainingFormationsFor,trainingPlan,normalizePlayer,groupOf,positionCost,preferredQuality,trainingSlots,matchSlots,distributeTraining,makeMatchLineup,matchFormMetrics};
