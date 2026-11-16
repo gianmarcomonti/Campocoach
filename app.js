@@ -9,7 +9,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const today = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
   const uid = () => (crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
-  const defaultData = () => ({ version:9, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
+  const defaultData = () => ({ version:10, players:[], attendance:{}, attendanceCertified:{}, sessions:[], matches:[] });
   const fmtDate = iso => {
     if (!iso) return '—';
     const d = new Date(`${iso}T12:00:00`);
@@ -54,7 +54,7 @@
       return {...m,lineup,calledUpIds,callupsConfirmed:confirmed,
         benchIds:calledUpIds.filter(id=>!lineup.includes(id))};
     });
-    return {version:9,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true,isFirstTeam:p.isFirstTeam===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches};
+    return {version:10,players:v.players.map(p=>TACTICS.normalizePlayer({...p,isDondo:p.isDondo===true,isFirstTeam:p.isFirstTeam===true})),attendance:v.attendance,attendanceCertified:certified,sessions:v.sessions,matches};
   }
   function load(){
     try {
@@ -64,7 +64,7 @@
     return defaultData();
   }
   let state = load();
-  let ui = { tab:'dashboard', date:today(), exercise:'partitella', teams:2, cap:0, extra:'jolly', includeGoalkeepers:true, defense:4, formation:'auto', current:null, selectedMatchId:null, editPlayerId:null, eventType:'gol', editingAttendance:false, editingMatchId:null, matchDraft:null, editingEventId:null, statsSort:{key:'trainings',dir:'desc'}, useDondo:false, dondoMode:'jolly', spondeCount:0 };
+  let ui = { tab:'dashboard', date:today(), exercise:'partitella', teams:2, cap:0, extra:'jolly', includeGoalkeepers:true, defense:4, formation:'auto', current:null, selectedMatchId:null, editPlayerId:null, eventType:'gol', editingAttendance:false, editingMatchId:null, matchDraft:null, editingEventId:null, statsSort:{key:'trainings',dir:'desc'}, useDondo:false, dondoMode:'jolly', spondeCount:0, excludeTrainingPlayers:false, excludedTrainingIds:[] };
   const certifiedRecord = (date=ui.date) => state.attendanceCertified[date] || null;
   const certifiedIds = (date=ui.date) => (certifiedRecord(date)?.ids || []).filter(id=>!!person(id) && !person(id).isDondo);
   const isAttendanceEditable = () => !certifiedRecord() || ui.editingAttendance;
@@ -248,7 +248,8 @@
   // Dondo does not need a certified attendance and never changes official stats.
   // For possession exercises, sponde are removed from the team pool first.
   function trainingSelection(){
-    const base=certifiedIds().filter(id=>ui.includeGoalkeepers || person(id)?.primaryPosition!=='POR');
+    const manuallyExcluded=new Set(ui.excludeTrainingPlayers ? (ui.excludedTrainingIds || []) : []);
+    const base=certifiedIds().filter(id=>!manuallyExcluded.has(id) && (ui.includeGoalkeepers || person(id)?.primaryPosition!=='POR'));
     const dondo=ui.useDondo?dondoPlayer():null;
     const sponde=[];
     const selected=new Set();
@@ -284,6 +285,7 @@
       present:ids.slice(),cap:ui.cap,extra:ui.extra,includeGoalkeepers:ui.includeGoalkeepers,
       defense:ui.defense,formation:selection.formation,goalkeeperSeats:selection.goalkeeperSeats,outfieldSize:selection.outfieldSize,
       sponde:pool.sponde, dondoJoker:pool.dondoJoker, useDondo:ui.useDondo, dondoMode:ui.dondoMode,
+      excludedIds:ui.excludeTrainingPlayers ? ids.filter(id=>(ui.excludedTrainingIds||[]).includes(id)) : [],
       createdAt:Date.now()};
     renderTraining();toast('Squadre e sponde generate!');
   }
@@ -316,6 +318,10 @@
     const certifiedDates=Object.keys(state.attendanceCertified).sort((a,b)=>b.localeCompare(a));
     const trainingDates=[...new Set([...Object.keys(state.attendance),...certifiedDates,...state.sessions.map(s=>s.date)])].filter(Boolean).sort((a,b)=>b.localeCompare(a));
     const canGenerate=!!confirmed && !ui.editingAttendance;
+    const confirmedList=certifiedIds();
+    const excluded=new Set(ui.excludeTrainingPlayers ? (ui.excludedTrainingIds || []) : []);
+    const excludedConfirmed=confirmedList.filter(id=>excluded.has(id));
+    const includedConfirmed=confirmedList.filter(id=>!excluded.has(id));
     const pool=trainingSelection();
     const eligible=pool.teamIds||[];
     const plan=TACTICS.trainingPlan(eligible,state.players,{teams:ui.teams,cap:ui.cap,includeGoalkeepers:ui.includeGoalkeepers});
@@ -335,11 +341,18 @@
       ${players.length?`<div class="player-list">${players.map(p=>`<label class="player-row attendance-row ${present.has(p.id)?'checked':''} ${!editable?'locked':''}" style="margin:0" for="att-${esc(p.id)}"><input id="att-${esc(p.id)}" type="checkbox" data-att-id="${esc(p.id)}" ${present.has(p.id)?'checked':''} ${!editable?'disabled':''}><div class="number-badge">${p.number}</div><div class="person-info"><strong>${esc(p.name)}</strong><small>${esc(p.primaryPosition||p.role)}${p.secondaryPosition?' / '+esc(p.secondaryPosition):''}</small><div class="rating-in-list">${ratingStars(p.rating,true)}</div></div></label>`).join('')}</div>`:'<div class="empty">Prima aggiungi i giocatori alla rosa.</div>'}
       <div class="attendance-actions">${confirmed&&!ui.editingAttendance?`<button class="btn secondary full" data-action="edit-attendance">Modifica presenze</button>`:`<button class="btn primary full" data-action="certify-attendance" ${players.length===0?'disabled':''}>${confirmed?'Conferma le correzioni':'Certifica presenze'}</button>${ui.editingAttendance?'<button class="btn ghost full" data-action="cancel-attendance-edit">Annulla modifiche</button>':''}`}${hasTrainingDate(ui.date)?`<button type="button" class="btn danger full" data-action="delete-training" data-date="${esc(ui.date)}">Elimina allenamento del ${fmtDate(ui.date)}</button>`:''}</div>
       </div>
-      <div class="card"><div class="card-title"><h2>2 · Crea le squadre</h2><span class="tag ${canGenerate?'':'orange'}">${canGenerate?`${eligible.length} disponibili`:'Prima certifica'}</span></div>
+      <div class="card"><div class="card-title"><h2>2 · Crea le squadre</h2><span class="tag ${canGenerate?'':'orange'}">${canGenerate?`${eligible.length} disponibili · ${excludedConfirmed.length} esclusi`:'Prima certifica'}</span></div>
       ${!canGenerate?`<div class="training-gate"><div class="gate-icon">&#10003;</div><strong>Conferma prima le presenze</strong><p>Solo i giocatori certificati per il ${fmtDate(ui.date)} saranno utilizzati nella generazione delle squadre.</p></div>`:`<div class="stack"><div class="form-group"><label for="exercise">Esercizio</label><select id="exercise"><option value="partitella" ${ui.exercise==='partitella'?'selected':''}>Partitella / gara</option><option value="possesso" ${ui.exercise==='possesso'?'selected':''}>Possesso (3 gruppi)</option><option value="rondo" ${ui.exercise==='rondo'?'selected':''}>Rondo / stazioni (4 gruppi)</option><option value="personalizzato" ${ui.exercise==='personalizzato'?'selected':''}>Personalizzato</option></select></div>
       <div class="two-col"><div class="form-group"><label for="teamCount">Numero squadre</label><select id="teamCount">${[2,3,4].map(v=>`<option value="${v}" ${ui.teams===v?'selected':''}>${v} squadre</option>`).join('')}</select></div><div class="form-group"><label for="teamCap">Max giocatori/squadra</label><input id="teamCap" type="number" min="0" max="30" value="${ui.cap}" placeholder="0"></div></div>
       <div class="form-hint">0 = dividi tutti i giocatori disponibili. Esempio: 18 = 9 contro 9; 17 = 8 contro 8 con jolly o riserva, quando non si escludono portieri.</div>
       <label class="toggle-control" for="includeGoalkeepers"><input type="checkbox" id="includeGoalkeepers" ${ui.includeGoalkeepers?'checked':''}><span><strong>Includi i portieri</strong><small>Disattiva per escludere tutti i portieri dalla creazione delle squadre, ma non dalle presenze certificate.</small></span></label>
+      <div class="formation-settings player-selection-settings">
+      <label class="toggle-control training-exclude-toggle" for="excludeTrainingPlayers"><input type="checkbox" id="excludeTrainingPlayers" ${ui.excludeTrainingPlayers?'checked':''}><span><strong>Escludi qualcuno da questo esercizio</strong><small>Opzionale: attiva il flag solo se vuoi lasciare fuori uno o più presenti dalla partitella, dal possesso o dalle stazioni. Le presenze certificate non cambiano.</small></span></label>
+      ${ui.excludeTrainingPlayers?`<div class="training-exclude-picker"><div class="training-selection-head"><strong>Scegli chi partecipa</strong><p class="hint">${includedConfirmed.length} inclusi su ${confirmedList.length} presenti · ${excludedConfirmed.length} esclusi da questo esercizio.</p></div>
+      <div class="button-row training-selection-actions"><button type="button" class="btn small secondary" data-action="include-all-training">Includi tutti</button><button type="button" class="btn small secondary" data-action="exclude-all-training">Escludi tutti</button></div>
+      <div class="training-selection-list" role="group" aria-label="Giocatori inclusi in questo esercizio">${orderPlayers(confirmedList.map(person).filter(Boolean)).map(p=>`<label class="training-selection-row ${excluded.has(p.id)?'is-excluded':''}"><input type="checkbox" data-training-use-id="${esc(p.id)}" ${excluded.has(p.id)?'':'checked'}><span class="training-selection-number">${esc(p.number)}</span><span class="training-selection-person"><strong>${esc(p.name)}</strong><small>${esc(positionLine(p))}${!ui.includeGoalkeepers && p.primaryPosition==='POR'?' · Portiere escluso dal flag dedicato':''}</small></span><span class="training-selection-status">${excluded.has(p.id)?'Escluso':'Incluso'}</span></label>`).join('')}</div>
+      <p class="hint training-selection-note">Togli la spunta a chi non deve fare questo esercizio. Sarà comunque conteggiato come presente all’allenamento.</p></div>`:`<p class="hint training-exclude-off">Nessuno escluso manualmente: il generatore usa tutti i presenti certificati, rispettando l’eventuale esclusione dei portieri.</p>`}
+      </div>
       <div class="formation-settings"><strong>Jolly Dondo</strong>
       <label class="toggle-control" for="useDondo"><input type="checkbox" id="useDondo" ${ui.useDondo?'checked':''} ${dondoPlayer()?'':'disabled'}><span><strong>Attiva Jolly Dondo</strong><small>${dondoPlayer()?`${esc(dondoPlayer().name)} · ${esc(positionName(dondoPlayer()))} · ${ratingLabel(dondoPlayer().rating)} stelle. Non conta nelle statistiche.`:'Prima registra un giocatore come “Jolly Dondo” nella sezione Rosa.'}</small></span></label>
       ${ui.useDondo && dondoPlayer()?`<div class="form-group"><label for="dondoMode">Utilizzo di Dondo</label><select id="dondoMode"><option value="jolly" ${ui.dondoMode==='jolly'?'selected':''}>Jolly neutrale (o sponda nel possesso)</option><option value="squadre" ${ui.dondoMode==='squadre'?'selected':''}>Giocatore aggiuntivo per completare le squadre</option></select><div class="form-hint">Esempio: 17 presenti + Dondo nelle squadre = 9 contro 9. Con 16 presenti + Dondo jolly = 8 contro 8 più jolly.</div></div>`:''}
@@ -352,12 +365,12 @@
       <div class="form-hint">${formationOptions.length?`Puoi scegliere ${formationOptions.join(' oppure ')}. Le due squadre useranno lo stesso modulo.`:`Per ${plan.outfieldSize} giocatori di movimento non è disponibile un modulo predefinito con difesa a ${ui.defense}: verrà usata una distribuzione adattata.`} Un difensore centrale di ruolo viene preferito a un terzino adattato; i ruoli secondari si usano quando necessario.</div></div>
       </div>
       <div class="form-group"><label for="extra">Come gestire i giocatori in piu'?</label><select id="extra"><option value="jolly" ${ui.extra==='jolly'?'selected':''}>Jolly (se ci sono 2 squadre)</option><option value="riposo" ${ui.extra==='riposo'?'selected':''}>Turno di riposo / riserva</option></select></div>
-      <button class="btn primary full" data-action="generate" ${eligible.length<Math.max(2,ui.teams)*2?'disabled':''}>Genera squadre con il modulo</button></div>
+      <button class="btn primary full" data-action="generate" ${eligible.length<Math.max(2,ui.teams)*2?'disabled':''}>Genera squadre con il modulo</button>${eligible.length<Math.max(2,ui.teams)*2?'<p class="warning-note">Giocatori insufficienti per formare le squadre. Reincludi qualcuno oppure diminuisci il numero di gruppi.</p>':''}</div>
       <p class="hint">Il generatore usa esclusivamente i confermati disponibili, dà priorità ai ruoli principali e poi ai secondari, e cerca di bilanciare il livello. Puoi sempre scambiare giocatori a mano.</p>`}</div></div>
       ${c?`<div class="card" id="generated"><div class="card-title"><h2>Squadre generate</h2><span class="tag">${c.groups.map(g=>g.length).join(' vs ')}</span></div><p class="hint" style="margin:0 0 14px"><strong>Modulo ${esc(c.formation||'libero')}</strong> · Difesa a ${c.defense||4} · ${c.outfieldSize??'—'} giocatori di movimento ${c.goalkeeperSeats?'+ portiere per squadra':''} · Portieri ${c.includeGoalkeepers===false?'esclusi':'inclusi'}.</p><div class="teams-grid">${c.groups.map((g,i)=>renderTrainingTeam(c,i)).join('')}</div>
        ${c.sponde?.length?`<div class="sponde-preview"><div class="sponde-heading"><span>◉ SPONDE DEL POSSESSO</span><strong>${c.sponde.length} spond${c.sponde.length===1?'a':'e'}</strong></div><div class="sponde-players">${c.sponde.map(id=>{const p=person(id);return `<div class="sponda-chip"><span class="sponda-number">${p?.number??'?'}</span><div><strong>${esc(p?.name||'Giocatore')}</strong><small>${esc(positionName(p))}${p?.isDondo?' · Jolly Dondo':''}</small></div></div>`;}).join('')}</div></div>`:''}
-       <div class="special-list">${c.dondoJoker?`<div class="special"><strong>JOLLY DONDO:</strong> ${esc(display(c.dondoJoker))} · fuori dalle squadre, non contabilizzato</div>`:''}${c.joker?`<div class="special"><strong>JOLLY:</strong> ${esc(display(c.joker))} · gioca con entrambe le squadre</div>`:''}${c.bench.length?`<div class="special"><strong>A RIPOSO:</strong> ${c.bench.map(id=>esc(display(id))).join(', ')}</div>`:''}</div><p class="hint">Puoi rigenerare le squadre o scambiare due giocatori.</p><div class="two-col"><div class="form-group"><label for="swapA">Primo giocatore</label><select id="swapA">${c.groups.flat().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div><div class="form-group"><label for="swapB">Secondo giocatore</label><select id="swapB">${c.groups.flat().slice().reverse().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div></div><div class="button-row" style="margin-top:12px"><button class="btn secondary" data-action="swap">Scambia</button><button class="btn primary" data-action="save-session">Salva esercizio</button></div></div>`:''}
-      <div class="card"><div class="card-title"><h2>Storico esercizi</h2><span class="tag">${state.sessions.length} salvati</span></div>${state.sessions.length?state.sessions.slice(0,12).map(s=>`<div class="session"><div><strong>${esc(labels[s.title]||s.title||'Esercizio')} · ${s.groups.map(g=>g.length).join(' vs ')}${s.formation?' · '+esc(s.formation):''}${s.sponde?.length?' · '+s.sponde.length+' sponde':''}${s.useDondo?' · Dondo':''}</strong><small>${fmtDate(s.date)} · ${s.present.length} presenti ${s.needsReview?'<span class="text-warn">· Presenze modificate: da rigenerare</span>':''}</small></div><div class="record-actions"><button class="btn small secondary" data-action="load-session" data-id="${esc(s.id)}">${s.needsReview?'Rigenera':'Vedi'}</button><button class="btn small danger" data-action="delete-session" data-id="${esc(s.id)}" aria-label="Elimina esercizio ${esc(labels[s.title]||s.title||'salvato')} del ${fmtDate(s.date)}">Elimina</button></div></div>`).join(''):'<div class="empty">Qui troverai le squadre salvate allenamento per allenamento.</div>'}</div>
+       ${c.excludedIds?.length?`<div class="training-excluded-summary"><strong>Esclusi da questo esercizio (${c.excludedIds.length}):</strong> ${c.excludedIds.map(id=>esc(display(id))).join(' · ')}. <span>Le presenze certificate non cambiano.</span></div>`:''}<div class="special-list">${c.dondoJoker?`<div class="special"><strong>JOLLY DONDO:</strong> ${esc(display(c.dondoJoker))} · fuori dalle squadre, non contabilizzato</div>`:''}${c.joker?`<div class="special"><strong>JOLLY:</strong> ${esc(display(c.joker))} · gioca con entrambe le squadre</div>`:''}${c.bench.length?`<div class="special"><strong>A RIPOSO:</strong> ${c.bench.map(id=>esc(display(id))).join(', ')}</div>`:''}</div><p class="hint">Puoi rigenerare le squadre o scambiare due giocatori.</p><div class="two-col"><div class="form-group"><label for="swapA">Primo giocatore</label><select id="swapA">${c.groups.flat().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div><div class="form-group"><label for="swapB">Secondo giocatore</label><select id="swapB">${c.groups.flat().slice().reverse().map(id=>`<option value="${esc(id)}">${esc(display(id))}</option>`).join('')}</select></div></div><div class="button-row" style="margin-top:12px"><button class="btn secondary" data-action="swap">Scambia</button><button class="btn primary" data-action="save-session">Salva esercizio</button><button class="btn secondary" data-action="new-exercise">Nuovo esercizio</button></div></div>`:''}
+      <div class="card"><div class="card-title"><h2>Storico esercizi</h2><span class="tag">${state.sessions.length} salvati</span></div>${state.sessions.length?state.sessions.slice(0,12).map(s=>`<div class="session"><div><strong>${esc(labels[s.title]||s.title||'Esercizio')} · ${s.groups.map(g=>g.length).join(' vs ')}${s.formation?' · '+esc(s.formation):''}${s.sponde?.length?' · '+s.sponde.length+' sponde':''}${s.useDondo?' · Dondo':''}${s.excludedIds?.length?' · '+s.excludedIds.length+' esclusi':''}</strong><small>${fmtDate(s.date)} · ${s.present.length} presenti ${s.needsReview?'<span class="text-warn">· Presenze modificate: da rigenerare</span>':''}</small></div><div class="record-actions"><button class="btn small secondary" data-action="load-session" data-id="${esc(s.id)}">${s.needsReview?'Rigenera':'Vedi'}</button><button class="btn small danger" data-action="delete-session" data-id="${esc(s.id)}" aria-label="Elimina esercizio ${esc(labels[s.title]||s.title||'salvato')} del ${fmtDate(s.date)}">Elimina</button></div></div>`).join(''):'<div class="empty">Qui troverai le squadre salvate allenamento per allenamento.</div>'}</div>
       <div class="card"><div class="card-title"><h2>Registro allenamenti</h2><span class="tag">${certifiedDates.length} certificati</span></div>${trainingDates.length?trainingDates.slice(0,20).map(d=>`<div class="session"><div><strong>${fmtDate(d)}</strong><small>${certifiedRecord(d)?`${certifiedIds(d).length} presenti certificati`:'Bozza non certificata'} · ${state.sessions.filter(s=>s.date===d).length} esercizi salvati</small></div><div class="record-actions"><button class="btn small secondary" data-action="open-training" data-date="${esc(d)}">Apri / correggi</button><button class="btn small danger" data-action="delete-training" data-date="${esc(d)}" aria-label="Elimina allenamento del ${fmtDate(d)}">Elimina</button></div></div>`).join(''):'<div class="empty">Il registro sara visibile dopo il primo allenamento registrato.</div>'}<p class="hint">Eliminando una data vengono rimosse le presenze e tutti gli esercizi salvati di quel giorno.</p></div>`;
   }
 
@@ -633,6 +646,8 @@
       for(const sess of state.sessions) if(sess.date===ui.date) sess.needsReview=!sameIds(sess.present,ids);
     }
     ui.editingAttendance=false;
+    ui.excludedTrainingIds=(ui.excludedTrainingIds||[]).filter(id=>ids.includes(id));
+    if(!ui.excludedTrainingIds.length)ui.excludeTrainingPlayers=false;
     ui.current=null;
     save();renderTraining();toast(previous?'Presenze aggiornate e ricertificate':'Presenze certificate: ora puoi creare le squadre');
   }
@@ -655,7 +670,7 @@
     delete state.attendance[date];
     delete state.attendanceCertified[date];
     state.sessions=state.sessions.filter(s=>s.date!==date);
-    if(ui.date===date){ui.editingAttendance=false;ui.current=null;}
+    if(ui.date===date){ui.editingAttendance=false;ui.current=null;ui.excludeTrainingPlayers=false;ui.excludedTrainingIds=[];}
     else if(ui.current?.date===date)ui.current=null;
     save();render(ui.tab);toast(`Allenamento del ${fmtDate(date)} eliminato`);
   }
@@ -679,7 +694,7 @@
       renderTraining();return;
     }
     if(ui.editingAttendance) state.attendance[ui.date]=[...certifiedIds()];
-    ui.date=nextDate||today();ui.current=null;ui.editingAttendance=false;save();renderTraining();
+    ui.date=nextDate||today();ui.current=null;ui.excludeTrainingPlayers=false;ui.excludedTrainingIds=[];ui.editingAttendance=false;save();renderTraining();
   }
   function exportBackup(){
     const contents=JSON.stringify(state,null,2);
@@ -757,11 +772,25 @@
     const target=event.target;
     if(target.id==='pRating'){const preview=el('ratingPreview');if(preview)preview.innerHTML=ratingStars(Number(target.value));return;}
     if(target.matches('[data-att-id]')){updateAttendance(target.dataset.attId,target.checked);return;}
+    if(target.id==='excludeTrainingPlayers'){
+      if(!certifiedRecord() || ui.editingAttendance)return;
+      ui.excludeTrainingPlayers=target.checked;
+      if(!ui.excludeTrainingPlayers)ui.excludedTrainingIds=[];
+      ui.current=null;ui.formation='auto';renderTraining();return;
+    }
+    if(target.matches('[data-training-use-id]')){
+      if(!certifiedRecord() || ui.editingAttendance || !ui.excludeTrainingPlayers)return;
+      const id=target.dataset.trainingUseId;
+      if(!certifiedIds().includes(id))return;
+      const excluded=new Set(ui.excludedTrainingIds||[]);
+      if(target.checked)excluded.delete(id);else excluded.add(id);
+      ui.excludedTrainingIds=[...excluded];ui.current=null;ui.formation='auto';renderTraining();return;
+    }
     if(target.id==='trainingDate'){switchTrainingDate(target.value);return;}
     if(target.id==='exercise'){
       ui.exercise=target.value;
       const preset={partitella:[2,0],possesso:[3,0],rondo:[4,4],personalizzato:[2,0]}[ui.exercise];
-      [ui.teams,ui.cap]=preset;ui.formation='auto';ui.spondeCount=ui.exercise==='possesso'?ui.spondeCount:0;ui.current=null;renderTraining();return;
+      [ui.teams,ui.cap]=preset;ui.formation='auto';ui.spondeCount=ui.exercise==='possesso'?ui.spondeCount:0;ui.excludeTrainingPlayers=false;ui.excludedTrainingIds=[];ui.current=null;renderTraining();return;
     }
     if(target.id==='teamCount'){ui.teams=Number(target.value);ui.formation='auto';ui.current=null;renderTraining();return;}
     if(target.id==='teamCap'){ui.cap=Math.max(0,Math.min(30,Number(target.value)||0));ui.formation='auto';ui.current=null;renderTraining();return;}
@@ -811,6 +840,11 @@
     else if(a==='delete-player')deletePlayer(id);
     else if(a==='all-present'){if(!isAttendanceEditable())return;state.attendance[ui.date]=officialPlayers().map(p=>p.id);ui.current=null;save();renderTraining();}
     else if(a==='none-present'){if(!isAttendanceEditable())return;state.attendance[ui.date]=[];ui.current=null;save();renderTraining();}
+    else if(a==='include-all-training' || a==='exclude-all-training'){
+      if(!certifiedRecord() || ui.editingAttendance || !ui.excludeTrainingPlayers)return;
+      ui.excludedTrainingIds=a==='exclude-all-training'?[...certifiedIds()]:[];
+      ui.current=null;ui.formation='auto';renderTraining();
+    }
     else if(a==='certify-attendance')certifyAttendance();
     else if(a==='edit-attendance')editAttendance();
     else if(a==='cancel-attendance-edit')cancelAttendanceEdit();
@@ -819,6 +853,7 @@
     else if(a==='open-training'){switchTrainingDate(b.dataset.date);navigate('training');}
     else if(a==='generate')generateGroups();
     else if(a==='save-session')saveSession();
+    else if(a==='new-exercise'){ui.current=null;ui.excludeTrainingPlayers=false;ui.excludedTrainingIds=[];ui.formation='auto';renderTraining();toast('Nuovo esercizio: tutti i presenti sono di nuovo disponibili');}
     else if(a==='swap'){
       if(!ui.current)return;
       const id1=el('swapA')?.value,id2=el('swapB')?.value;
@@ -830,8 +865,8 @@
     }
     else if(a==='load-session'){
       const s=state.sessions.find(x=>x.id===id);if(!s)return;
-      if(s.needsReview || !sameIds(s.present,certifiedIds(s.date))){ui.date=s.date;ui.current=null;ui.editingAttendance=false;ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;renderTraining();toast('Presenze cambiate: rigenera le squadre');return;}
-      ui.date=s.date;ui.editingAttendance=false;ui.current=JSON.parse(JSON.stringify(s));ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;renderTraining();setTimeout(()=>el('generated')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
+      if(s.needsReview || !sameIds(s.present,certifiedIds(s.date))){ui.date=s.date;ui.current=null;ui.editingAttendance=false;ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;ui.excludedTrainingIds=(s.excludedIds||[]).filter(id=>certifiedIds(s.date).includes(id));ui.excludeTrainingPlayers=ui.excludedTrainingIds.length>0;renderTraining();toast('Presenze cambiate: rigenera le squadre');return;}
+      ui.date=s.date;ui.editingAttendance=false;ui.current=JSON.parse(JSON.stringify(s));ui.teams=s.groups.length;ui.cap=s.cap||0;ui.extra=s.extra||'jolly';ui.includeGoalkeepers=s.includeGoalkeepers!==false;ui.defense=s.defense||4;ui.formation=s.formation||'auto';ui.exercise=s.title||'personalizzato';ui.useDondo=!!s.useDondo;ui.dondoMode=s.dondoMode||'jolly';ui.spondeCount=s.sponde?.length||0;ui.excludedTrainingIds=(s.excludedIds||[]).filter(id=>certifiedIds(s.date).includes(id));ui.excludeTrainingPlayers=ui.excludedTrainingIds.length>0;renderTraining();setTimeout(()=>el('generated')?.scrollIntoView({behavior:'smooth',block:'start'}),0);
     }
     else if(a==='select-match'){if(id!==ui.selectedMatchId && !closeMatchEditor())return;ui.selectedMatchId=id;ui.eventType='gol';ui.editingEventId=null;renderMatches();}
     else if(a==='edit-match')beginMatchEdit(id);

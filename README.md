@@ -1,4 +1,4 @@
-# CampoCoach 4.9 — App per GitHub Pages
+# CampoCoach 5.1 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -66,7 +66,7 @@ Non e un'app nativa pubblicata su App Store o Google Play, ma un sito installabi
 
 ## Novità CampoCoach 4.7 — Convocazioni e Prima squadra
 
-- Nella **Rosa** puoi indicare un giocatore come **Prima squadra**. Non modifica presenze certificate, statistiche o stelle; dalla 4.9 esclude la penalizzazione sulle presenze settimanali per la formazione.
+- Nella **Rosa** puoi indicare un giocatore come **Prima squadra**. Non modifica presenze certificate, statistiche o stelle; dalla 5.0 esclude la penalizzazione sulle presenze settimanali per la formazione.
 - Nella **Partita** seleziona i **convocati**, eventualmente usando i pulsanti “Convoca tutti” e “Solo Prima squadra”, poi premi **Conferma convocati**.
 - **Genera la migliore formazione** utilizza soltanto i convocati confermati. La compatibilità con il ruolo viene prima, poi valore in stelle, presenze settimanali e rendimento recente.
 - I convocati non scelti titolari passano automaticamente in **panchina**. I non convocati restano fuori.
@@ -82,10 +82,30 @@ Non e un'app nativa pubblicata su App Store o Google Play, ma un sito installabi
 - I vecchi dati sono compatibili. Resta invariato l'indirizzo dell'app; esporta un backup JSON prima di aggiornare.
 
 
-## Novita CampoCoach 4.9 — Prima squadra esente dalla regola 0/2
+## Novita CampoCoach 5.0 — Prima squadra esente dalla regola 0/2
 
 - **Prima squadra**: i giocatori con il relativo flag **non sono soggetti alla penalizzazione 0/2** nella formazione automatica.
 - Le presenze settimanali non influenzano neppure il loro **indice di selezione**: i punti settimanali vengono trattati come neutri (pari a quelli di una frequenza piena), se ci sono allenamenti certificati nella settimana. Questo **non modifica le presenze registrate**, ne' le statistiche personali; il dato reale rimane nascosto nella schermata Partita come gia' previsto.
 - Per gli altri giocatori resta la regola 0/2: se ci sono almeno due allenamenti certificati, chi e' stato assente a entrambi viene sfavorito quando esiste un'alternativa allenata per quel ruolo.
 - La scelta continua a dipendere dal **modulo selezionato, ruolo principale/secondario, stelle e rendimento recente**. Non cambia il flusso Convocati -> Scegli modulo -> Genera formazione.
 - Nessuna modifica necessaria ai dati esistenti. Esegui comunque un backup JSON prima di pubblicare una versione nuova.
+
+
+## Novita versione 5.0 — Escludere giocatori dalle squadre
+
+Nella sezione Allenamenti, dopo la certificazione delle presenze, usa il riquadro **Giocatori da utilizzare**.
+Le caselle sono selezionate per impostazione predefinita; togli la spunta ai presenti che non devono entrare nell'esercizio.
+Puoi anche usare **Includi tutti** o **Escludi tutti**. I portieri possono sempre essere esclusi in blocco con il flag dedicato.
+Le squadre, le sponde, il jolly e i moduli sono ricalcolati soltanto sui giocatori inclusi.
+La selezione di esclusione vale per l'esercizio e non modifica la presenza certificata, gli allenamenti nello storico o le statistiche del calciatore.
+Quando salvi l'esercizio, la lista degli esclusi viene salvata con esso; puoi rivederla dallo storico.
+
+
+## Novita 5.1 — Esclusione facoltativa nella creazione di ogni esercizio
+
+- Dopo aver certificato le presenze, entra in **Allenamenti > Crea le squadre** e seleziona l'esercizio.
+- Attiva **Escludi qualcuno da questo esercizio** soltanto se vuoi escludere giocatori per l'esercizio che stai preparando.
+- Togli la spunta ai giocatori che non faranno quell'esercizio; il numero delle squadre e dei partecipanti viene ricalcolato.
+- Se l'opzione e' disattivata partecipano tutti i presenti certificati, salvo l'eventuale flag separato per i portieri.
+- Le esclusioni non alterano mai la presenza certificata o le statistiche. Sono salvate con l'esercizio e possono essere recuperate dal suo storico.
+- **Nuovo esercizio** riparte senza esclusioni, anche se crei un'altra partitella nello stesso allenamento. Cambiando tipo di esercizio o data si riparte ugualmente da tutti i presenti.

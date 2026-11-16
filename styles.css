@@ -193,3 +193,31 @@
 .callups-confirm small{color:#bad2bc;font-size:11px;line-height:1.5}
 .callups-summary{display:flex;flex-wrap:wrap;gap:6px;padding:11px;border-radius:10px;background:#1c3430;color:#b5cdbe;font-size:12px}
 @media(max-width:550px){.callups-chooser{grid-template-columns:1fr}.callups-confirm .btn{width:100%}.callups-actions .btn{flex:1;padding:10px 8px;font-size:11px}}
+
+/* v5.0 — scelta giocatori per ogni esercizio, indipendente dalle presenze */
+.player-selection-settings{margin-top:14px}
+.training-selection-head strong{color:var(--lime);font-size:14px}
+.training-selection-head .hint{margin:6px 0 12px}
+.training-selection-actions{margin-bottom:12px}
+.training-selection-list{max-height:295px;overflow-y:auto;overscroll-behavior:contain;display:grid;gap:7px;padding:2px}
+.training-selection-row{display:flex;align-items:center;gap:10px;padding:10px 11px;background:#254438;border:1px solid #55725c;border-radius:12px;cursor:pointer;color:var(--text);margin:0;min-height:57px}
+.training-selection-row.is-excluded{background:#252d30;border-color:#3f5354;opacity:.79}
+.training-selection-row input[type="checkbox"]{width:20px;height:20px;flex:0 0 20px;padding:0;margin:0;accent-color:var(--lime)}
+.training-selection-number{display:grid;place-items:center;width:27px;min-width:27px;height:27px;border-radius:8px;background:#31543d;color:var(--lime);font-weight:800;font-size:12px}
+.training-selection-person{display:flex;flex-direction:column;min-width:0;flex:1;gap:3px}
+.training-selection-person strong{font-size:12px;color:var(--text);white-space:normal}
+.training-selection-person small{font-size:10px;color:var(--muted);font-weight:500}
+.training-selection-status{color:var(--lime);font-size:10px;flex:0 0 auto}
+.training-selection-row.is-excluded .training-selection-status{color:#a2adb0}
+.training-selection-note{margin:12px 0 0!important}
+.training-excluded-summary{margin:12px 0;padding:11px 13px;border:1px solid #536160;border-radius:11px;background:#233536;font-size:12px;line-height:1.55}
+.training-excluded-summary strong{color:var(--lime)}
+.training-excluded-summary span{color:var(--muted)}
+@media(max-width:480px){.training-selection-list{max-height:270px}.training-selection-row{padding:9px}.training-selection-status{font-size:9px}}
+
+/* 5.1: esclusione facoltativa legata al singolo esercizio */
+.training-exclude-toggle{margin:0}
+.training-exclude-picker{margin-top:13px;padding-top:13px;border-top:1px solid #52705b}
+.training-exclude-picker .training-selection-head .hint{margin-bottom:10px}
+.training-exclude-off{margin:11px 0 0!important;color:var(--muted)}
+@media(max-width:480px){.training-exclude-toggle{padding:11px}}
