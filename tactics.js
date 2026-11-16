@@ -1,4 +1,4 @@
-/* CampoCoach tactical engine v5.2: training, match lineup and recent form. */
+/* CampoCoach tactical engine v5.3: training, match lineup and recent form. */
 (function(root){
   'use strict';
   const POSITIONS = Object.freeze({
@@ -203,6 +203,7 @@
     // All smaller exercises keep the automatic tactical distribution.
     const manualAllowed=plan.numberOfTeams===2 && plan.size===11 && plan.keeperSeats===1;
     const requested=manualAllowed?formation:'auto';
+    if(manualAllowed && requested==='auto')return {error:'Per l’11 contro 11 scegli un modulo prima di generare le squadre.'};
     if(requested!=='auto' && (!choices.includes(requested)))return {error:`Il modulo ${requested} non corrisponde alla difesa scelta. Scegli un modulo adatto.`};
     const selected=requested==='auto'?(choices[0]||'libero'):requested;
     const perGroup=trainingSlots(size,defense,includeGoalkeepers,selected,plan.keeperSeats);

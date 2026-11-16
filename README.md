@@ -1,4 +1,4 @@
-# CampoCoach 5.2 — App per GitHub Pages
+# CampoCoach 5.3 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -120,3 +120,12 @@ Quando salvi l'esercizio, la lista degli esclusi viene salvata con esso; puoi ri
 - Per le squadre più piccole il **modulo è automatico** in funzione dei giocatori e della difesa scelta. Restano disponibili le esclusioni per esercizio, le sponde, Dondo, il jolly, i cambi manuali e lo storico.
 - Per i moduli su quattro linee, come **4-2-3-1** e **3-4-1-2**, l'anteprima mostra separatamente attacco, trequarti, centrocampo e difesa.
 - Le presenze certificate e le statistiche rimangono indipendenti dalle scelte tattiche. Nessuna migrazione dei dati necessaria. Eseguire un backup JSON prima dell'aggiornamento.
+
+
+## Novità 5.3 — Moduli allenamento 11 contro 11
+
+- Con **11 giocatori per squadra, portiere incluso**, il modulo deve essere **selezionato manualmente** prima di poter generare le squadre.
+- Difesa a 4: 4-3-3, 4-2-3-1, 4-4-2. Difesa a 3: 3-5-2, 3-4-3, 3-4-1-2.
+- Con squadre di dimensioni diverse dall'11 contro 11, il modulo e' **automatico** e non appare alcun menu per sceglierlo.
+- Il criterio usa la dimensione della squadra dopo le eventuali esclusioni per il singolo esercizio, la scelta delle sponde e l'aggiunta di Jolly Dondo.
+- Restano invariati i dati in localStorage e tutte le altre funzioni precedenti.
