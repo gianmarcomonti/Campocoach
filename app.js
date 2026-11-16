@@ -275,8 +275,11 @@
     const ids=certifiedIds();
     const pool=trainingSelection();
     if(pool.error){toast(pool.error);return;}
+    const plan=TACTICS.trainingPlan(pool.teamIds,state.players,{teams:ui.teams,cap:ui.cap,includeGoalkeepers:ui.includeGoalkeepers});
+    const canChoose=plan.numberOfTeams===2 && plan.size===11 && plan.keeperSeats===1;
+    const actualFormation=canChoose && TACTICS.trainingFormationsFor(plan.outfieldSize,ui.defense).includes(ui.formation)?ui.formation:'auto';
     const selection=TACTICS.distributeTraining(pool.teamIds,state.players,{
-      teams:ui.teams,cap:ui.cap,extra:ui.extra,defense:ui.defense,formation:ui.formation,
+      teams:ui.teams,cap:ui.cap,extra:ui.extra,defense:ui.defense,formation:actualFormation,
       includeGoalkeepers:ui.includeGoalkeepers,restCounts:recentRestCounts()
     });
     if(selection.error){toast(selection.error);return;}
@@ -293,17 +296,24 @@
     const group=c.groups[i]||[];
     const name=String.fromCharCode(65+i);
     const assigned=c.slotsByGroup?.[i] || group.map(id=>({id,key:person(id)?.primaryPosition,label:person(id)?.primaryPosition,row:'CEN'}));
-    const sections=[['ATT','ATTACCO'],['CEN','CENTROCAMPO'],['DIF','DIFESA'],['POR','PORTIERE']];
+    // Individual tactical lines are kept separate for 4-2-3-1 and 3-4-1-2.
+    // Older saved exercises without lineIndex keep their original display.
+    const precise=assigned.some(slot=>Number.isInteger(slot.lineIndex));
+    const lineIndices=[...new Set(assigned.filter(slot=>slot.lineIndex>=0).map(slot=>slot.lineIndex))].sort((a,b)=>b-a);
+    const topLine=lineIndices[0]??2;
+    const sections=precise
+      ? [...lineIndices.map(index=>({key:index,title:index===topLine?'ATTACCO':index===0?'DIFESA':topLine===3&&index===2?'TREQUARTI':'CENTROCAMPO'})),{key:-1,title:'PORTIERE'}]
+      : [['ATT','ATTACCO'],['CEN','CENTROCAMPO'],['DIF','DIFESA'],['POR','PORTIERE']].map(([key,title])=>({key,title}));
     const rowFor=slot=>slot.row || (slot.key==='POR'?'POR':['DC','TS','TD','BRS','BRD'].includes(slot.key)?'DIF':['PUN','AD','AS'].includes(slot.key)?'ATT':'CEN');
     return `<div class="team ${i%2?'team-b':''}">
       <div class="team-title"><strong>Squadra ${name}</strong><span class="team-score">${group.reduce((a,id)=>a+(person(id)?.rating||0),0)} pt</span></div>
       <div class="training-mini-pitch" aria-label="Modulo ${esc(c.formation||'libero')} della squadra ${name}">
-      ${sections.map(([row,title])=>{
-        const slots=assigned.filter(slot=>rowFor(slot)===row);
+      ${sections.map(({key,title})=>{
+        const slots=assigned.filter(slot=>precise?slot.lineIndex===key:rowFor(slot)===key);
         if(!slots.length)return '';
         return `<div class="tactic-line"><div class="tactic-line-title">${title}</div><div class="tactic-players">${slots.map(slot=>{
           const p=person(slot.id);
-          return `<div class="tactic-player"><span class="tactic-shirt ${row==='POR'?'keeper':''}">${p?.number??'?'}</span><strong>${esc(p?.name||'—')}</strong><small>${esc(slot.label||slot.key||'—')}</small><span class="tactic-quality">${p?TACTICS.preferredQuality(p,slot.key):'Vuoto'}</span></div>`;
+          return `<div class="tactic-player"><span class="tactic-shirt ${slot.key==='POR'?'keeper':''}">${p?.number??'?'}</span><strong>${esc(p?.name||'—')}</strong><small>${esc(slot.label||slot.key||'—')}</small><span class="tactic-quality">${p?TACTICS.preferredQuality(p,slot.key):'Vuoto'}</span></div>`;
         }).join('')}</div></div>`;
       }).join('')}
       </div></div>`;
@@ -326,7 +336,8 @@
     const eligible=pool.teamIds||[];
     const plan=TACTICS.trainingPlan(eligible,state.players,{teams:ui.teams,cap:ui.cap,includeGoalkeepers:ui.includeGoalkeepers});
     const formationOptions=TACTICS.trainingFormationsFor(plan.outfieldSize,ui.defense);
-    const shownFormation=formationOptions.includes(ui.formation)?ui.formation:'auto';
+    const fullEleven=plan.numberOfTeams===2 && plan.size===11 && plan.keeperSeats===1;
+    const shownFormation=fullEleven && formationOptions.includes(ui.formation)?ui.formation:'auto';
     const suggestedFormation=formationOptions[0]||'assetto libero';
     const status=ui.editingAttendance?'MODIFICA IN CORSO':confirmed?'PRESENZE CERTIFICATE':'BOZZA DA CERTIFICARE';
     const statusColor=ui.editingAttendance?'orange':confirmed?'':'orange';
@@ -361,8 +372,9 @@
       <div class="formation-settings"><strong>Modulo tattico per ogni squadra</strong>
       <p class="hint">${plan.size>0?`Con ${eligible.length} disponibili: <b>${plan.size} giocatori per squadra</b> (${plan.outfieldSize} di movimento${plan.keeperSeats?' + 1 portiere':''}).`:'Seleziona i giocatori per conoscere i moduli disponibili.'} I numeri del modulo <b>non comprendono il portiere</b>.</p>${plan.keeperSeats && plan.keeperCount<plan.numberOfTeams?`<p class="warning-note">Attenzione: ci sono solo ${plan.keeperCount} portieri certificati per ${plan.numberOfTeams} squadre. Potrebbe essere adattato un giocatore di movimento in porta.</p>`:''}
       <div class="form-group"><label for="defenseStyle">Linea difensiva</label><select id="defenseStyle"><option value="4" ${ui.defense===4?'selected':''}>Difesa a 4 · terzino SX, 2 centrali, terzino DX</option><option value="3" ${ui.defense===3?'selected':''}>Difesa a 3 · braccetto SX, centrale, braccetto DX</option></select></div>
-      <div class="form-group"><label for="trainingFormation">Modulo delle squadre</label><select id="trainingFormation"><option value="auto" ${shownFormation==='auto'?'selected':''}>Automatico (${suggestedFormation})</option>${formationOptions.map(name=>`<option value="${name}" ${shownFormation===name?'selected':''}>${name} · ${name.split('-').join(' + ')}</option>`).join('')}</select>
-      <div class="form-hint">${formationOptions.length?`Puoi scegliere ${formationOptions.join(' oppure ')}. Le due squadre useranno lo stesso modulo.`:`Per ${plan.outfieldSize} giocatori di movimento non è disponibile un modulo predefinito con difesa a ${ui.defense}: verrà usata una distribuzione adattata.`} Un difensore centrale di ruolo viene preferito a un terzino adattato; i ruoli secondari si usano quando necessario.</div></div>
+      ${fullEleven?`<div class="form-group"><label for="trainingFormation">Scegli il modulo per l'11 contro 11</label><select id="trainingFormation"><option value="auto" ${shownFormation==='auto'?'selected':''}>Automatico (${suggestedFormation})</option>${formationOptions.map(name=>`<option value="${name}" ${shownFormation===name?'selected':''}>${name}</option>`).join('')}</select><div class="form-hint">${ui.defense===4?'Difesa a 4: 4-3-3, 4-2-3-1, 4-4-2.':'Difesa a 3: 3-5-2, 3-4-3, 3-4-1-2.'} Entrambe le squadre useranno il modulo selezionato.</div></div>`
+      :`<div class="automatic-formation" aria-live="polite"><strong>Modulo automatico</strong><span>${suggestedFormation}</span><small>Per le squadre con meno di 11 giocatori (o senza portiere) il modulo viene scelto automaticamente, rispettando la linea difensiva selezionata. Per scegliere un modulo completo servono 11 giocatori per squadra, portiere incluso.</small></div>`}
+      <div class="form-hint">I centrali e i terzini di ruolo hanno precedenza sugli adattati; poi vengono considerati i ruoli secondari.</div>
       </div>
       <div class="form-group"><label for="extra">Come gestire i giocatori in piu'?</label><select id="extra"><option value="jolly" ${ui.extra==='jolly'?'selected':''}>Jolly (se ci sono 2 squadre)</option><option value="riposo" ${ui.extra==='riposo'?'selected':''}>Turno di riposo / riserva</option></select></div>
       <button class="btn primary full" data-action="generate" ${eligible.length<Math.max(2,ui.teams)*2?'disabled':''}>Genera squadre con il modulo</button>${eligible.length<Math.max(2,ui.teams)*2?'<p class="warning-note">Giocatori insufficienti per formare le squadre. Reincludi qualcuno oppure diminuisci il numero di gruppi.</p>':''}</div>

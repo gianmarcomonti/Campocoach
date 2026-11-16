@@ -1,4 +1,4 @@
-# CampoCoach 5.1 — App per GitHub Pages
+# CampoCoach 5.2 — App per GitHub Pages
 
 Gestione squadra di calcio: rosa con ruoli principali e secondari, presenze certificate agli allenamenti, generazione squadre con moduli, partite e formazioni, panchina, gol/assist/autogol/porta inviolata e statistiche ordinabili.
 
@@ -109,3 +109,14 @@ Quando salvi l'esercizio, la lista degli esclusi viene salvata con esso; puoi ri
 - Se l'opzione e' disattivata partecipano tutti i presenti certificati, salvo l'eventuale flag separato per i portieri.
 - Le esclusioni non alterano mai la presenza certificata o le statistiche. Sono salvate con l'esercizio e possono essere recuperate dal suo storico.
 - **Nuovo esercizio** riparte senza esclusioni, anche se crei un'altra partitella nello stesso allenamento. Cambiando tipo di esercizio o data si riparte ugualmente da tutti i presenti.
+
+
+## Novità 5.2 — Moduli manuali per l'11 contro 11
+
+- In Allenamenti > Crea squadre, dopo aver scelto l'esercizio, la linea difensiva e i presenti certificati, se si gioca **11 contro 11 con portiere** puoi scegliere il modulo dal menu, oppure lasciare "Automatico".
+- Con difesa a **4**: **4-3-3**, **4-2-3-1**, **4-4-2**.
+- Con difesa a **3**: **3-5-2**, **3-4-3**, **3-4-1-2**.
+- I moduli comprendono **10 giocatori di movimento + 1 portiere per squadra**. Il menu manuale compare con almeno 22 giocatori disponibili per due squadre, dopo eventuali esclusioni e sponde, senza limite massimo inferiore a 11 giocatori per squadra. Se mancano portieri non si forza uno schema 11 contro 11 con 10 giocatori di movimento.
+- Per le squadre più piccole il **modulo è automatico** in funzione dei giocatori e della difesa scelta. Restano disponibili le esclusioni per esercizio, le sponde, Dondo, il jolly, i cambi manuali e lo storico.
+- Per i moduli su quattro linee, come **4-2-3-1** e **3-4-1-2**, l'anteprima mostra separatamente attacco, trequarti, centrocampo e difesa.
+- Le presenze certificate e le statistiche rimangono indipendenti dalle scelte tattiche. Nessuna migrazione dei dati necessaria. Eseguire un backup JSON prima dell'aggiornamento.

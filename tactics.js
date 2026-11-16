@@ -1,4 +1,4 @@
-/* CampoCoach tactical engine v4.2: training, match lineup and recent form. */
+/* CampoCoach tactical engine v5.2: training, match lineup and recent form. */
 (function(root){
   'use strict';
   const POSITIONS = Object.freeze({
@@ -30,6 +30,13 @@
     '4-2-3':[['TS','DC','DC','TD'],['MED','MEZ'],['AS','PUN','AD']],
     '3-3-3':[['BRS','DC','BRD'],['MEZ','MED','MEZ'],['AS','PUN','AD']],
     '3-4-2':[['BRS','DC','BRD'],['ES','MEZ','MED','ED'],['PUN','PUN']],
+    // Full 11 v 11: ten outfielders plus a goalkeeper on each side.
+    '4-3-3':[['TS','DC','DC','TD'],['MEZ','MED','MEZ'],['AS','PUN','AD']],
+    '4-2-3-1':[['TS','DC','DC','TD'],['MED','MED'],['AS','TREQ','AD'],['PUN']],
+    '4-4-2':[['TS','DC','DC','TD'],['ES','MED','MEZ','ED'],['PUN','PUN']],
+    '3-5-2':[['BRS','DC','BRD'],['ES','MEZ','MED','MEZ','ED'],['PUN','PUN']],
+    '3-4-3':[['BRS','DC','BRD'],['ES','MEZ','MED','ED'],['AS','PUN','AD']],
+    '3-4-1-2':[['BRS','DC','BRD'],['ES','MEZ','MED','ED'],['TREQ'],['PUN','PUN']],
     // Fallbacks for groups with seven outfielders (e.g. 8v8 with a keeper).
     '4-2-1':[['TS','DC','DC','TD'],['MED','MEZ'],['PUN']],
     '3-3-1':[['BRS','DC','BRD'],['MEZ','MED','MEZ'],['PUN']],
@@ -109,8 +116,8 @@
       rows=[defensive,midfieldSlots(middle),attackSlots(attackers)];
     }
     const slots=[];
-    if(keeperSeats)slots.push({key:'POR',label:'Portiere',index:0,row:'POR'});
-    rows.forEach((row,i)=>row.forEach(position=>slots.push({key:position,label:labelFor(position),index:slots.length,row:['DIF','CEN','ATT'][i]||'CEN'})));
+    if(keeperSeats)slots.push({key:'POR',label:'Portiere',index:0,row:'POR',lineIndex:-1});
+    rows.forEach((row,i)=>row.forEach(position=>slots.push({key:position,label:labelFor(position),index:slots.length,row:i===0?'DIF':i===rows.length-1?'ATT':'CEN',lineIndex:i})));
     return slots;
   }
   function matchSlots(formation){
@@ -192,15 +199,19 @@
     const size=plan.size;
     if(size<2)return {error:'Ogni squadra deve avere almeno due giocatori.'};
     const choices=trainingFormationsFor(plan.outfieldSize,defense);
-    if(formation!=='auto' && (!choices.includes(formation)))return {error:`Il modulo ${formation} non corrisponde ai ${plan.outfieldSize} giocatori di movimento per squadra. Scegli un modulo adatto.`};
-    const selected=formation==='auto'?(choices[0]||'libero'):formation;
+    // Manual choice is offered only with 11 players per team (including the goalkeeper).
+    // All smaller exercises keep the automatic tactical distribution.
+    const manualAllowed=plan.numberOfTeams===2 && plan.size===11 && plan.keeperSeats===1;
+    const requested=manualAllowed?formation:'auto';
+    if(requested!=='auto' && (!choices.includes(requested)))return {error:`Il modulo ${requested} non corrisponde alla difesa scelta. Scegli un modulo adatto.`};
+    const selected=requested==='auto'?(choices[0]||'libero'):requested;
     const perGroup=trainingSlots(size,defense,includeGoalkeepers,selected,plan.keeperSeats);
     const slots=Array.from({length:nGroups},(_,team)=>perGroup.map(slot=>({...slot,team}))).flat();
     const results=minCostMatching(slots,available,restCounts);
     const slotRows=Array.from({length:nGroups},()=>[]);
     results.forEach((player,index)=>{
       const slot=slots[index];
-      slotRows[slot.team].push({key:slot.key,label:slot.label,row:slot.row,id:player?.id||null});
+      slotRows[slot.team].push({key:slot.key,label:slot.label,row:slot.row,lineIndex:slot.lineIndex,id:player?.id||null});
     });
     // Swap equally suitable assignments between teams to keep technical ratings balanced.
     const scoreTeam=g=>g.reduce((sum,x)=>sum+(roster.get(x.id)?.rating||0),0);
